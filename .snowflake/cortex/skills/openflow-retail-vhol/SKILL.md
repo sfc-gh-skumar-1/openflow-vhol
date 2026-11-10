@@ -63,6 +63,15 @@ fails because an earlier one hadn't run, re-run the remaining statements in file
   Also run `USE ROLE PUBLIC;` then `USE ROLE ACCOUNTADMIN;` to prove role switching works; if it fails with
   "USE ROLE not allowed", apply the PAT fix above before Act 1.
 
+## Session errors (any act)
+- **"Authentication token has expired"** (error 390114): the *session* token expired after a long or idle session;
+  the PAT itself is still valid (7 days). Retry the same statement once — the connection re-authenticates. If it
+  fails again, tell the attendee to reconnect: CoCo Desktop -> Connections -> select the VHOLuser connection again
+  (or start a new chat). Only if the PAT itself expired (`PAT expired` / login fails) re-issue it with bootstrap Block 1.
+  Never switch to a different connection to work around it.
+- **"No active warehouse selected"**: run `USE WAREHOUSE RETAIL_HOL_WH;` and retry (`01_environment.sql` sets it as
+  VHOLuser's default; older runs may not have it). For metadata checks prefer SHOW / DESCRIBE, which need no warehouse.
+
 ## Secrets handling (strict)
 
 - The Postgres `snowflake_admin` password is returned ONCE by `CREATE POSTGRES INSTANCE`.
@@ -236,6 +245,7 @@ accepted once by ORGADMIN; if deployment creation fails mentioning terms, say so
    Data note: the generated inventory is never CRITICAL/LOW (~86% OVERSTOCKED), so the Supply Chain story is
    overstock + rebalancing, not stock-outs. The 30 s budget can cut off long answers; suggest "continue".
 7. Cleanup only when explicitly asked: stop any background `cdc_demo.py`, then `solutions/99_cleanup.sql` (confirm first — destructive).
+   Do the pre-cleanup checks with SHOW / DESCRIBE (no warehouse needed); RETAIL_HOL_WH is dropped near the end.
    SUSPEND/TERMINATE are async: poll the SHOW check after each until the status is reached before the
    next DROP (in `SHOW OPENFLOW DEPLOYMENTS` the status is the 3rd column; the 2nd is `type`).
    If the account has other Openflow runtimes or objects in `RETAIL_HOL_ADMIN` / using `RETAIL_HOL_ROLE`,

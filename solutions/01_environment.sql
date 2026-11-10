@@ -12,6 +12,9 @@ CREATE WAREHOUSE IF NOT EXISTS RETAIL_HOL_WH
   WAREHOUSE_SIZE = 'XSMALL' AUTO_SUSPEND = 60 AUTO_RESUME = TRUE INITIALLY_SUSPENDED = TRUE
   COMMENT = 'Retail HOL warehouse';
 GRANT USAGE, OPERATE ON WAREHOUSE RETAIL_HOL_WH TO ROLE RETAIL_HOL_ROLE;
+-- Give the lab user a default warehouse, so every new session (CoCo reconnects, helper scripts) can run
+-- queries that need compute without a USE WAREHOUSE first ("No active warehouse selected").
+ALTER USER IDENTIFIER($MY_USER) SET DEFAULT_WAREHOUSE = RETAIL_HOL_WH;
 
 -- Admin DB: secrets + network rules
 CREATE DATABASE IF NOT EXISTS RETAIL_HOL_ADMIN COMMENT = 'Retail HOL admin objects (secrets, network)';

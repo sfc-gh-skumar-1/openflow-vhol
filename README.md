@@ -511,6 +511,8 @@ encoding your own team's Openflow and pipeline conventions.
 | Add Local Skill: "No valid skills found ... Directory was NOT persisted" | You picked the repo root. Pick `openflow-vhol/.snowflake/cortex/skills` instead (macOS: **Cmd+Shift+. (period)** shows hidden folders). |
 | `SNOWFLAKE.CORTEX.SENTIMENT` (or `CLASSIFY_TEXT`, `SUMMARIZE`) is blocked | New accounts can't use the legacy `SNOWFLAKE.CORTEX.*` functions. The lab already uses `AI_SENTIMENT`, `AI_CLASSIFY` and `AI_SUMMARIZE`; make sure CoCo runs `05_silver.sql` / `06_gold.sql` as written. |
 | `OPENFLOW_ADMIN` missing from the Snowsight role switcher | Snowsight is logged in as the event admin user, not `VHOLuser`. Ask CoCo to run `GRANT ROLE OPENFLOW_ADMIN TO ROLE SYSADMIN;` (already in `02_openflow_deployment.sql` for new runs), then refresh Snowsight. |
+| *"Authentication token has expired"* | The login session expired after a long or idle lab (your PAT is still valid). CoCo retries once; if it persists, re-select the VHOLuser connection in CoCo Desktop -> **Connections** or start a new chat. |
+| *"No active warehouse selected"* | Ask CoCo to `USE WAREHOUSE RETAIL_HOL_WH` and retry. New runs set it as VHOLuser's default warehouse in Act 1. |
 | Agent "not an allowed model" | The spec already uses `orchestration: auto`. Pick a model in Snowsight -> Agent -> Configuration. |
 
 ## Credits
