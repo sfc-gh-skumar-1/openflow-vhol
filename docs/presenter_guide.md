@@ -41,6 +41,7 @@ The generated inventory is never CRITICAL or LOW (~86% OVERSTOCKED), so tell the
 
 ## Observability notes
 - The dashboard needs minimum versions (Snowflake deployment 1.26.0, runtime 2026.3.17.13, PostgreSQL connector 0.39.0). If a connector shows **Upgrade required**, the SQL checks in `04b_observability.sql` still work.
+- Remind attendees to **switch Snowsight to `OPENFLOW_ADMIN`** before opening Connector Observability or the wizard; under other roles the connector doesn't show.
 - Connectors appear only if they emitted telemetry in the selected window. Use **Last Hour** and event table `OPENFLOW_DB.OPENFLOW_SCHEMA.EVENTS`.
 - The `severity_text` error query from the original notebook never matches Openflow logs (verified: 0 rows while 116 errors existed). Use query 5 in `04b_observability.sql`.
 

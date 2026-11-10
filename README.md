@@ -288,8 +288,13 @@ Prefer clicking through a UI? Ask CoCo for your values first:
 
 > I want to use the Openflow setup wizard instead of SQL. Get whatever the connector needs ready, then give me the exact values to enter for POSTGRES_INGEST.
 
+> **Important: switch your Snowsight role to `OPENFLOW_ADMIN` first.** Click your name (top right) ->
+> **Switch role** -> **`OPENFLOW_ADMIN`**. The Openflow wizard, the installed connector and the
+> **Connector Observability** dashboard (Act 4) only show up under that role. If it isn't in the list,
+> see Troubleshooting.
+
 Then in Snowsight:
-1. **Ingestion -> Openflow -> Launch Openflow.** Switch your role to **`OPENFLOW_ADMIN`** (top right).
+1. **Ingestion -> Openflow -> Launch Openflow** (role: **`OPENFLOW_ADMIN`**).
 2. Open the **Connector library** tab and find **PostgreSQL CDC** (it's marked **gen 2**). Pick runtime
    **`POSTGRES_RUNTIME_SOM`**, then select **Install** and name it **`POSTGRES_INGEST`**.
    If you're prompted, **Allow** the Openflow data plane to access your account.
@@ -338,10 +343,12 @@ Then in Snowsight:
 
 CoCo runs `solutions/04b_observability.sql`. Then open the dashboard:
 
-1. **Ingestion -> Openflow -> Connector Observability**.
-2. Set **Event table** to `OPENFLOW_DB.OPENFLOW_SCHEMA.EVENTS` and the time frame to **Last Hour**.
-3. Find `POSTGRES_INGEST`. You'll see its status (**Healthy**/**Unhealthy**), throughput and data ingested.
-4. Open the connector's menu and select **View Details**. Each of the 5 tables shows its **replication phase**
+1. In Snowsight, **switch your role to `OPENFLOW_ADMIN`** (your name, top right -> **Switch role**). Under other roles
+   the connector doesn't appear on the dashboard.
+2. **Ingestion -> Openflow -> Connector Observability**.
+3. Set **Event table** to `OPENFLOW_DB.OPENFLOW_SCHEMA.EVENTS` and the time frame to **Last Hour**.
+4. Find `POSTGRES_INGEST`. You'll see its status (**Healthy**/**Unhealthy**), throughput and data ingested.
+5. Open the connector's menu and select **View Details**. Each of the 5 tables shows its **replication phase**
    (New -> Snapshot Load -> Incremental Replication), its status and **Last Ingested**.
 
 Now prove it's live CDC, not a one-time copy. Turn the store on:

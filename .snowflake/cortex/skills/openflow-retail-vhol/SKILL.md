@@ -151,7 +151,8 @@ Kick off the deployment and immediately continue to Act 2 — do not block on AC
 - Telemetry queries (verified against real Openflow telemetry): log level is `TRY_PARSE_JSON(value):level` with
   `record_type = 'LOG'`; metrics use `record:metric:name` with `record_type = 'METRIC'`. Never filter on
   `record_attributes:severity_text` — Openflow logs don't populate it (returns 0 rows even when errors exist).
-- Dashboard (Snowsight UI, attendee clicks): Ingestion -> Openflow -> Connector Observability; event table
+- Dashboard (Snowsight UI, attendee clicks): **tell them to switch Snowsight role to OPENFLOW_ADMIN first** (the dashboard
+  and the wizard only show the connector under that role); Ingestion -> Openflow -> Connector Observability; event table
   `OPENFLOW_DB.OPENFLOW_SCHEMA.EVENTS`; Last Hour; POSTGRES_INGEST -> View Details (per-table phase/status/Last Ingested);
   Unhealthy -> Troubleshoot (AI), Issues tab, View logs.
 - Live-CDC proof (default in the lab): `<venv-python> scripts/cdc_demo.py --account <ORG-ACCOUNT> --continuous`
