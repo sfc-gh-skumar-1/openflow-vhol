@@ -176,15 +176,20 @@ Kick off the deployment and immediately continue to Act 2 — do not block on AC
   **Never wait or sleep for more reports.** Answer immediately with whatever exists, even a single report:
   give the latest value per metric/table in seconds (plus p50/max when there are 2+ reports) and its timestamp.
   If there is only 1-2 reports, add one line: "more reports arrive every 60 s; ask again later for a fuller picture".
-- Alert + failure drill: create the alert block in `04b_observability.sql` (`REPLICATION_ALERT_LOG` table,
-  `POSTGRES_INGEST_TABLE_FAILURE_ALERT`, then `ALTER ALERT ... RESUME`) **as ACCOUNTADMIN** — the owner role needs
-  EXECUTE ALERT; if ALERT_HISTORY shows "EXECUTE ALERT privilege must be granted to owner role", recreate it as ACCOUNTADMIN. Then
+- Alert + failure drill: run the alert block in `04b_observability.sql` **as written**. It uses the built-in Openflow
+  template (`CREATE OR REPLACE ALERT ... FROM TEMPLATE OPENFLOW_GEN2_TABLE_REPLICATION_FAILURE`), owned by
+  **OPENFLOW_ADMIN**: first, as ACCOUNTADMIN, grant OPENFLOW_ADMIN `EXECUTE ALERT` on the account, `CREATE ALERT` on the
+  schema and USAGE on RETAIL_HOL_WH, and drop any old copy of the alert (+ the legacy `REPLICATION_ALERT_LOG` table);
+  then as OPENFLOW_ADMIN create and RESUME it. Do NOT hand-write an alert condition or a log table. Use the **Gen2**
+  template (the gen 1 one doesn't see POSTGRES_INGEST). Errors: "EXECUTE ALERT privilege must be granted to owner role"
+  or "No Openflow connectors visible for scope" -> re-run the grants. Then
   `<venv-python> scripts/fail_replication.py --account <ORG-ACCOUNT> --break` (adds `bronze.pos_events`, no primary key,
-  to the publication and connector; expect `db.table.status = 4008`). Wait ~3 min, show query 11 and query 12, and
+  to the publication and connector; expect `db.table.status = 4008`). Wait ~3 min, show query 11 (pos_events = 4008) and query 12 (ALERT_HISTORY state TRIGGERED; the template keeps
+  no log table, and its IN_APP notification goes only to VHOLuser, so point attendees to the history / Monitoring -> Alerts), and
   point to View Details on the dashboard. Restore with `--fix` when asked (or before Act 5): **run `--fix` in the background** (bash `run_in_background`)
   and move straight on with the attendee; don't sit waiting on it. Both modes return as soon as START is sent
   (add `--wait` only if you must block until RUNNING). Never hand-patch around script errors; `git pull` first. Only `pos_events` is
-  ever broken — never alter the 5 lab tables. Mention the Snowsight OPENFLOW alert template as the no-SQL option.
+  ever broken — never alter the 5 lab tables. Mention that Snowsight Monitoring -> Alerts -> OPENFLOW offers the same template (email/webhook) as the no-SQL option.
 
 ### Act 5 — Silver + Gold Dynamic Iceberg Tables (`solutions/05_silver.sql`, `06_gold.sql`)
 First (as ACCOUNTADMIN) grant `RETAIL_HOL_ROLE` USAGE on `RETAIL_HOL_ICEBERG.BRONZE` and
@@ -217,7 +222,9 @@ Bronze column names are UPPERCASE (connector uses case-insensitive identifiers).
 - Snowsight UI (attendee clicks; you can't do it from SQL here): **AI (or AI & ML) -> Agent Studio -> RETAIL_ANALYST_AGENT**.
   **Always publish it to CoWork yourself** right after creating the agent: run the CoWork block at the end of
   `08_agent.sql` as ACCOUNTADMIN (`CREATE SNOWFLAKE INTELLIGENCE IF NOT EXISTS ...`, `GRANT USAGE ON AGENT`,
-  `ALTER SNOWFLAKE INTELLIGENCE SNOWFLAKE_INTELLIGENCE_OBJECT_DEFAULT ADD AGENT ...`, `GRANT USAGE ON SNOWFLAKE INTELLIGENCE ... TO ROLE PUBLIC`).
+  `ALTER SNOWFLAKE INTELLIGENCE SNOWFLAKE_INTELLIGENCE_OBJECT_DEFAULT ADD AGENT ...`, `GRANT USAGE ... TO ROLE PUBLIC`,
+  `GRANT MODIFY ... TO ROLE RETAIL_HOL_ROLE`). Event accounts have no CoWork object until this runs, so the UI button is
+  greyed out for every role (even ACCOUNTADMIN) before it.
   "Already added" on re-run is fine. The UI button needs MODIFY on the CoWork object (ACCOUNTADMIN only), so other roles get
   "You do not have MODIFY privilege". Then the attendee opens the agent in Agent Studio and, on the Preview tab **Preview in Snowflake CoWork** -> pick Retail Analyst Agent -> ask the persona questions. Programmatic option: `SNOWFLAKE.CORTEX.DATA_AGENT_RUN`
   (example in `08_agent.sql`).
@@ -238,7 +245,7 @@ accepted once by ORGADMIN; if deployment creation fails mentioning terms, say so
 1. Environment + kick off Openflow deployment (do not wait). Checkpoint D: `SHOW OPENFLOW DEPLOYMENTS` (expect CREATING/…).
 2. Postgres instance -> READY -> pg_creds.json -> secret + egress rule -> venv + loader. Checkpoint P.
 3. (Deployment ACTIVE) Attendee asks for the connector -> you detect the missing runtime and create it (SMALL) -> ACTIVE -> tasks -> connector via SQL (Option A) or wizard guidance (Option B) -> START. Checkpoints R, C.
-4. Observability: `04b_observability.sql` queries 1-8 -> dashboard -> `cdc_demo.py --continuous` (background) -> latency queries 9-11 -> alert -> `fail_replication.py --break` -> queries 11-12 -> `--fix`. Checkpoint O.
+4. Observability: `04b_observability.sql` queries 1-8 -> dashboard -> `cdc_demo.py --continuous` (background) -> latency queries 9-11 -> template alert -> `fail_replication.py --break` -> queries 11-12 -> `--fix`. Checkpoint O.
 5. Bronze grants -> Silver -> Gold. Checkpoints S, G.
 6. Semantic view -> agent -> ask persona questions (from `references/agent_spec.md`) with DATA_AGENT_RUN -> publish to CoWork via the SQL block in `08_agent.sql` (ACCOUNTADMIN) -> point them to
    Agent Studio -> Preview -> Preview in Snowflake CoWork.
@@ -261,7 +268,7 @@ accepted once by ORGADMIN; if deployment creation fails mentioning terms, say so
   If empty after ~5 min, run the error-log query in `solutions/04b_observability.sql` (`TRY_PARSE_JSON(value):level = 'ERROR'`, `record_type = 'LOG'`; NOT `record_attributes:severity_text`, which never matches Openflow logs).
 - **O (observability):** event-table telemetry query (query 4) returns LOG and METRIC rows; error-log query (5)
   returns 0 rows; `cdc_demo.py` shows Bronze keeping up; latency query 9 returns rows; after `--break` query 11 shows
-  `pos_events` at 4008 and `REPLICATION_ALERT_LOG` has a row; after `--fix` the 5 lab tables are still status 3; dashboard shows POSTGRES_INGEST **Healthy**
+  `pos_events` at 4008 and ALERT_HISTORY shows TRIGGERED; after `--fix` the 5 lab tables are still status 3; dashboard shows POSTGRES_INGEST **Healthy**
   with tables in **Incremental Replication**. Dashboard needs minimum versions (Snowflake deployment 1.26.0,
   runtime 2026.3.17.13, PostgreSQL connector 0.39.0); if it says **Upgrade required**, say so — SQL checks still work.
 - **S (silver):** `SHOW DYNAMIC TABLES IN SCHEMA RETAIL_HOL_ICEBERG.SILVER_MANAGED_ICEBERG;` -> 3 tables, is_iceberg = true, ADAPTIVE

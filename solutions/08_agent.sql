@@ -94,7 +94,8 @@ WHERE f.value:type::VARCHAR = 'text';
 -- default. Clicking "+ Add to Snowflake CoWork" in Agent Studio under RETAIL_HOL_ROLE / an attendee role fails
 -- with "You do not have MODIFY privilege to add agents to Snowflake CoWork", so CoCo does it here instead.
 USE ROLE ACCOUNTADMIN;
--- 1. Ensure the CoWork (Snowflake Intelligence) object exists
+-- 1. Ensure the CoWork (Snowflake Intelligence) object exists. Event accounts don't have one yet, which is why
+--    "+ Add to Snowflake CoWork" is greyed out for every role until this runs.
 CREATE SNOWFLAKE INTELLIGENCE IF NOT EXISTS SNOWFLAKE_INTELLIGENCE_OBJECT_DEFAULT;
 
 -- 2. Grant USAGE so the role can interact with the agent in CoWork
@@ -108,6 +109,9 @@ ALTER SNOWFLAKE INTELLIGENCE SNOWFLAKE_INTELLIGENCE_OBJECT_DEFAULT
 
 -- 4. Let users see the CoWork agent list (no-op if already granted)
 GRANT USAGE ON SNOWFLAKE INTELLIGENCE SNOWFLAKE_INTELLIGENCE_OBJECT_DEFAULT TO ROLE PUBLIC;
+
+-- 5. Let the lab role manage CoWork agents itself (enables the Agent Studio "+ Add to Snowflake CoWork" button for it)
+GRANT MODIFY ON SNOWFLAKE INTELLIGENCE SNOWFLAKE_INTELLIGENCE_OBJECT_DEFAULT TO ROLE RETAIL_HOL_ROLE;
 
 -- Checkpoint: the agent is published
 SHOW AGENTS IN SNOWFLAKE INTELLIGENCE SNOWFLAKE_INTELLIGENCE_OBJECT_DEFAULT;

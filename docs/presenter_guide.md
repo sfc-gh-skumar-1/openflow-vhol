@@ -49,7 +49,8 @@ The generated inventory is never CRITICAL or LOW (~86% OVERSTOCKED), so tell the
 - Start `cdc_demo.py --continuous` early in Act 4; latency metrics are only reported while data flows (every 60 s). CoCo answers immediately with whatever reports exist (no waiting); the numbers get fuller if asked again a few minutes later.
 - `fail_replication.py --break` stops and restarts the connector (~1–2 min) to add `pos_events`; the failure status and alert follow ~2–3 min later. Fill the gap with the latency chart.
 - Run `--fix` before Act 5 so the dashboard is green again. It runs in the background and returns once START is sent, so start Act 5 immediately; the connector is RUNNING again ~1–2 min later. Only `pos_events` is affected; Silver/Gold don't read it.
-- The SQL alert logs to a table (no notification integration needed). For email/webhook, show the OPENFLOW **Table replication failure alert** template in Snowsight Alerts.
+- The alert comes from Snowflake's built-in Openflow template (**Table replication failure alert (Gen2)**); the talking point is "you only set the scope". Show it firing via ALERT_HISTORY / Monitoring -> Alerts: its in-app notification goes to VHOLuser, not the presenter's Snowsight user. For email/webhook, create the same template in Snowsight with a notification integration.
+- If `fail_replication.py` fails partway, it restarts the connector on its last committed config before exiting, so CDC isn't left paused.
 
 ## Troubleshooting quick reference
 - Openflow errors: run query 5 in `solutions/04b_observability.sql` (parses `value` as JSON and filters `level = 'ERROR'`).

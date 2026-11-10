@@ -4,12 +4,13 @@
          publication and to the POSTGRES_INGEST table list (stop -> edit config.json -> commit -> start).
          The connector can't replicate a table without a primary key, so within ~1-2 min its
          db.table.status becomes 4008 (MISSING_PRIMARY_KEYS), the dashboard shows the table as failed,
-         and POSTGRES_INGEST_TABLE_FAILURE_ALERT (solutions/04b_observability.sql) logs it.
+         and the Openflow template alert POSTGRES_INGEST_TABLE_FAILURE_ALERT (solutions/04b_observability.sql) fires.
          The 5 lab tables keep replicating: the failure is isolated to one table.
 --fix    removes pos_events from the connector and the publication, and drops it from Postgres.
 
 By default the script returns as soon as START is sent (the connector finishes starting on its own);
-pass --wait to block until it is RUNNING again. Both modes are safe to re-run (e.g. after a partial failure): publication membership and the connector's
+pass --wait to block until it is RUNNING again. If anything fails after the connector is stopped, the script restarts it on its last committed config,
+so CDC is never left paused. Both modes are safe to re-run (e.g. after a partial failure): publication membership and the connector's
 live version are checked before they are changed.
 
 Auth (pick one):
@@ -79,6 +80,30 @@ def set_connector_tables(cur, tables, wait_for_running=False):
     if status[0][1] == "RUNNING":
         run(cur, "ALTER OPENFLOW CONNECTOR POSTGRES_INGEST STOP")
         print("   ", run(cur, WAIT)[0][0])
+    try:
+        edit_and_commit(cur, tables)
+    except BaseException:
+        # Never leave CDC paused: whatever failed (commit, upload, Ctrl+C), try to bring the connector back
+        # on its last committed config before exiting.
+        print("\n!! Edit/commit failed; restarting POSTGRES_INGEST on its last committed config so CDC keeps flowing.")
+        try:
+            run(cur, "ALTER OPENFLOW CONNECTOR POSTGRES_INGEST START")
+        except Exception as e:
+            print(f"!! Could not restart it ({e}). Run: ALTER OPENFLOW CONNECTOR "
+                  "OPENFLOW_DB.OPENFLOW_SCHEMA.POSTGRES_INGEST START;")
+        raise
+    run(cur, "ALTER OPENFLOW CONNECTOR POSTGRES_INGEST START")
+    if wait_for_running:
+        print("   ", run(cur, WAIT)[0][0])
+    else:
+        # START is asynchronous; nothing in the lab needs to block until RUNNING, so return now (saves ~1-2 min).
+        print("    START sent; the connector reaches RUNNING in ~1-2 min "
+              "(check: SHOW OPENFLOW CONNECTORS LIKE 'POSTGRES_INGEST')")
+    print("   ", run(cur, "SHOW OPENFLOW CONNECTORS LIKE 'POSTGRES_INGEST'", show=False)[0][:3])
+
+
+def edit_and_commit(cur, tables):
+    """Set the replicated-table list in the live config.json and commit it (connector must be stopped)."""
     ensure_live_version(cur)
 
     os.makedirs(WORK, exist_ok=True)
@@ -98,14 +123,6 @@ def set_connector_tables(cur, tables, wait_for_running=False):
     run(cur, f"PUT 'file://{path}' '{LIVE}' AUTO_COMPRESS = FALSE OVERWRITE = TRUE")
     run(cur, "ALTER OPENFLOW CONNECTOR POSTGRES_INGEST COMMIT")
     print("   ", run(cur, WAIT)[0][0])
-    run(cur, "ALTER OPENFLOW CONNECTOR POSTGRES_INGEST START")
-    if wait_for_running:
-        print("   ", run(cur, WAIT)[0][0])
-    else:
-        # START is asynchronous; nothing in the lab needs to block until RUNNING, so return now (saves ~1-2 min).
-        print("    START sent; the connector reaches RUNNING in ~1-2 min "
-              "(check: SHOW OPENFLOW CONNECTORS LIKE 'POSTGRES_INGEST')")
-    print("   ", run(cur, "SHOW OPENFLOW CONNECTORS LIKE 'POSTGRES_INGEST'", show=False)[0][:3])
 
 
 def main():
@@ -130,7 +147,7 @@ def main():
         ])
         set_connector_tables(cur, f'{TABLES},"bronze"."{DRILL_TABLE}"', args.wait)
         print(f"\nBroken on purpose: bronze.{DRILL_TABLE} has no primary key. In ~1-2 min expect "
-              "db.table.status = 4008 (query 11), a row in REPLICATION_ALERT_LOG (query 12),\n"
+              "db.table.status = 4008 (query 11), the alert TRIGGERED in ALERT_HISTORY (query 12),\n"
               "and the table marked failed in Connector Observability -> POSTGRES_INGEST -> View Details. "
               "Then run with --fix.")
     else:

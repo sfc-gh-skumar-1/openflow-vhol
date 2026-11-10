@@ -378,12 +378,16 @@ Chart query 9 in Snowsight (minute on X, latency on Y) to see the latency line w
 
 > Create an alert that fires when any table in POSTGRES_INGEST fails replication. Then break one table on purpose so I can see it fire.
 
-CoCo creates `POSTGRES_INGEST_TABLE_FAILURE_ALERT`, a Snowflake alert that checks the event table
-every minute and logs failed tables. Then it runs `scripts/fail_replication.py --break`, which adds a new
+You don't write the alert logic. Snowflake ships **Openflow alert templates**, and CoCo creates
+`POSTGRES_INGEST_TABLE_FAILURE_ALERT` from the built-in **Table replication failure alert (Gen2)** template
+(`CREATE ALERT ... FROM TEMPLATE OPENFLOW_GEN2_TABLE_REPLICATION_FAILURE`), setting only the scope (the
+`POSTGRES_INGEST` connector), a 1-minute schedule and in-app notification. Then it runs `scripts/fail_replication.py --break`, which adds a new
 Postgres table **without a primary key** (`bronze.pos_events`) to replication. Within about 2 minutes:
 - `pos_events` shows **failed** (`4008 MISSING_PRIMARY_KEYS`) in the dashboard's **View Details**.
   If the connector shows **Unhealthy**, try **Troubleshoot** for the AI root cause.
-- The alert fires and writes a row to `OPENFLOW_DB.OPENFLOW_SCHEMA.REPLICATION_ALERT_LOG`.
+- The alert fires: it shows **TRIGGERED** in its alert history (CoCo shows it) and in Snowsight **Monitoring -> Alerts**.
+  The in-app notification goes to the user who created the alert (`VHOLuser`), so check the history rather than
+  waiting for a pop-up in your Snowsight session.
 - The other 5 tables keep replicating. A failure is isolated to one table.
 
 > Fix the broken table.
@@ -391,11 +395,11 @@ Postgres table **without a primary key** (`bronze.pos_events`) to replication. W
 CoCo runs `scripts/fail_replication.py --fix` in the background, which removes `pos_events` from replication.
 The connector restarts on its own in about a minute, so you can carry straight on to Act 5.
 
-Prefer no SQL? In Snowsight, **Monitoring -> Alerts** has an **OPENFLOW** template group with a ready-made
-**Table replication failure alert** that can email or call a webhook.
+Prefer clicking? It's the same template in Snowsight: **Monitoring -> Alerts -> + Alert -> OPENFLOW** ->
+**Table replication failure alert (Gen2)**. Pick email or webhook there if you have a notification integration.
 
 **Checkpoint O:** the connector is **Healthy** again, the 5 lab tables are in **Incremental Replication**, Bronze kept
-up with the generator, the latency query returns rows, and the alert logged the `pos_events` failure.
+up with the generator, the latency query returns rows, and the alert TRIGGERED for the `pos_events` failure.
 
 > **Why it matters.** Openflow writes its logs and metrics to an event table you own, so health is
 > both a dashboard and plain SQL you can alert on. Latency is measured by the connector itself, from
@@ -448,8 +452,8 @@ Now ask the questions from the start of the story:
 
 Now hand it to the business users. In Snowsight:
 1. Go to **AI** (or **AI & ML**) **-> Agent Studio** and open **`RETAIL_ANALYST_AGENT`**. CoCo already published it to
-   CoWork, so you don't need **+ Add to Snowflake CoWork**. (If you do click it, switch Snowsight to **ACCOUNTADMIN** first;
-   other roles get *"You do not have MODIFY privilege"*.)
+   CoWork, so you don't need **+ Add to Snowflake CoWork**. (On a fresh event account that button is greyed out for every
+   role, *"You do not have MODIFY privilege"*, until CoCo's SQL has created the CoWork object.)
 2. On the **Preview** tab, select **Preview in Snowflake CoWork** (top right), pick **Retail Analyst Agent**, and
    ask it the persona questions in plain English.
 
@@ -506,8 +510,8 @@ encoding your own team's Openflow and pipeline conventions.
 | Connector running but Bronze is empty | Ask CoCo to "show recent Openflow errors from the event table". The usual causes are an egress rule still set to the placeholder host (`example.com:5432`), or the secret not granted to `POSTGRES_INGEST_SERVICE_ROLE`. |
 | SQL connector config is blocked | Use **Option B (wizard)** in Act 3. Everything else stays the same. |
 | Connector missing from the dashboard | Select event table `OPENFLOW_DB.OPENFLOW_SCHEMA.EVENTS` and **Last Hour**. Connectors only appear once they've emitted telemetry in that window. |
-| Alert didn't fire after `--break` | Allow ~3 min (60 s metric + 1 min schedule). Check the alert is resumed (`SHOW ALERTS IN SCHEMA OPENFLOW_DB.OPENFLOW_SCHEMA`) and run query 11 in `04b_observability.sql` for `pos_events`. |
-| *"You do not have MODIFY privilege to add agents to Snowflake CoWork"* | Adding to CoWork needs MODIFY on the CoWork object (ACCOUNTADMIN only by default). Ask CoCo to run the CoWork block at the end of `08_agent.sql`, or switch Snowsight to **ACCOUNTADMIN** and click **+ Add to Snowflake CoWork** again. |
+| Alert didn't fire after `--break` | Allow ~3 min (60 s metric + 1 min schedule). Check the alert is resumed (`SHOW ALERTS IN SCHEMA OPENFLOW_DB.OPENFLOW_SCHEMA`) and run query 11 in `04b_observability.sql` for `pos_events`. If ALERT_HISTORY shows *"EXECUTE ALERT privilege must be granted to owner role"* or *"No Openflow connectors visible for scope"*, re-run the alert block in `04b` (it grants OPENFLOW_ADMIN what it needs). |
+| *"You do not have MODIFY privilege to add agents to Snowflake CoWork"* | Adding to CoWork needs MODIFY on the CoWork object (ACCOUNTADMIN only by default). On event accounts the CoWork object doesn't exist yet, so the button is greyed out for every role, even ACCOUNTADMIN. Ask CoCo to run the CoWork block at the end of `08_agent.sql`: it creates the object, adds the agent and grants `RETAIL_HOL_ROLE` MODIFY so the button works afterwards. |
 | Add Local Skill: "No valid skills found ... Directory was NOT persisted" | You picked the repo root. Pick `openflow-vhol/.snowflake/cortex/skills` instead (macOS: **Cmd+Shift+. (period)** shows hidden folders). |
 | `SNOWFLAKE.CORTEX.SENTIMENT` (or `CLASSIFY_TEXT`, `SUMMARIZE`) is blocked | New accounts can't use the legacy `SNOWFLAKE.CORTEX.*` functions. The lab already uses `AI_SENTIMENT`, `AI_CLASSIFY` and `AI_SUMMARIZE`; make sure CoCo runs `05_silver.sql` / `06_gold.sql` as written. |
 | `OPENFLOW_ADMIN` missing from the Snowsight role switcher | Snowsight is logged in as the event admin user, not `VHOLuser`. Ask CoCo to run `GRANT ROLE OPENFLOW_ADMIN TO ROLE SYSADMIN;` (already in `02_openflow_deployment.sql` for new runs), then refresh Snowsight. |

@@ -1,7 +1,7 @@
 -- Openflow Retail VHOL — Act 4: Watch it flow (observability)
 -- Source: docs "Monitor connectors using the Openflow Connectors Dashboard" + "Monitor Openflow using telemetry data".
 -- Prereq: Act 3 done (connector POSTGRES_INGEST RUNNING). Safe to re-run.
--- Story: health (1-8) -> latency (9-11) -> alert + failure drill (alert block, 12, scripts/fail_replication.py).
+-- Story: health (1-8) -> latency (9-11) -> Openflow template alert + failure drill (alert block, 12, scripts/fail_replication.py).
 
 USE ROLE ACCOUNTADMIN;
 
@@ -141,54 +141,83 @@ SELECT s.source_schema, s.source_table, s.status,
 FROM status s LEFT JOIN fresh f USING (source_schema, source_table)
 ORDER BY s.status DESC, s.source_table;
 
--- ============================ Alert: table replication failure ============================
--- A Snowflake alert is just SQL over the event table. Every minute it looks for tables whose latest
--- db.table.status is FAILED (>= 4) and records them in REPLICATION_ALERT_LOG.
--- Create it as ACCOUNTADMIN: the alert's owner role needs the EXECUTE ALERT account privilege, otherwise
--- every run fails with "EXECUTE ALERT privilege must be granted to owner role".
--- Snowsight alternative (no SQL): Monitoring -> Alerts -> create from template, OPENFLOW group ->
--- "Table replication failure alert" (gen 2), scoped to connector POSTGRES_INGEST, with an email/webhook target.
-CREATE TABLE IF NOT EXISTS OPENFLOW_DB.OPENFLOW_SCHEMA.REPLICATION_ALERT_LOG (
-  fired_at      TIMESTAMP_LTZ,
-  connector     STRING,
-  source_schema STRING,
-  source_table  STRING,
-  status          NUMBER,
-  observed_at_utc TIMESTAMP_NTZ   -- event-table timestamps are UTC
-);
+-- ============================ Alert: table replication failure (template) ============================
+-- The alert is owned by OPENFLOW_ADMIN, the role that runs Openflow. The owner role needs the EXECUTE ALERT
+-- account privilege (otherwise every run fails with "EXECUTE ALERT privilege must be granted to owner role"),
+-- CREATE ALERT on the schema, and USAGE on the warehouse. It also needs USAGE on the runtime in scope, which it
+-- already has as the runtime owner; without it the template fails with "No Openflow connectors visible for scope".
+-- POSTGRES_INGEST is a gen 2 connector, so use the Gen2 template; the gen 1 template does not monitor it.
+-- Snowsight equivalent: Monitoring -> Alerts -> + Alert -> OPENFLOW group -> "Table replication failure alert (Gen2)".
+USE ROLE ACCOUNTADMIN;
+GRANT EXECUTE ALERT ON ACCOUNT TO ROLE OPENFLOW_ADMIN;
+GRANT CREATE ALERT ON SCHEMA OPENFLOW_DB.OPENFLOW_SCHEMA TO ROLE OPENFLOW_ADMIN;
+GRANT USAGE ON WAREHOUSE RETAIL_HOL_WH TO ROLE OPENFLOW_ADMIN;
 
+-- An earlier lab version created this alert as ACCOUNTADMIN; CREATE OR REPLACE as OPENFLOW_ADMIN needs
+-- ownership, so drop any existing copy first (safe: the template recreates it below).
+DROP ALERT IF EXISTS OPENFLOW_DB.OPENFLOW_SCHEMA.POSTGRES_INGEST_TABLE_FAILURE_ALERT;
+DROP TABLE IF EXISTS OPENFLOW_DB.OPENFLOW_SCHEMA.REPLICATION_ALERT_LOG;  -- log table from the old hand-written alert
+
+USE ROLE OPENFLOW_ADMIN;
+
+-- Optional: list the Openflow replication templates and their current versions
+SELECT t.value:template_id::STRING     AS template_id,
+       t.value:display_name::STRING    AS display_name,
+       t.value:template_version::STRING AS template_version
+FROM TABLE(FLATTEN(PARSE_JSON(SYSTEM$LIST_ALERT_TEMPLATES()):template_groups)) g,
+     TABLE(FLATTEN(g.value:templates)) t
+WHERE g.value:product::STRING = 'OPENFLOW'
+  AND t.value:display_name ILIKE '%replication%';
+
+-- Optional: see the template's variables and a ready-made CREATE statement
+SELECT PARSE_JSON(SYSTEM$GET_ALERT_TEMPLATE('OPENFLOW_GEN2_TABLE_REPLICATION_FAILURE')):template:create_syntax::STRING AS create_syntax;
+
+-- The template supplies the condition and action; you only set scope, lookback and notification.
+--   SCOPE_ACTIVE / SCOPE_NAME  limit the alert to the POSTGRES_INGEST connector
+--   TABLE_NAMES                empty = every replicated table
+--   NOTIFICATION_MODE IN_APP   needs no notification integration; v1 notifies only the user who ran this CREATE.
+--                              For email or webhook, set EMAIL / WEBHOOK and the matching *_NOTIFICATION_INTEGRATION.
+--   SCHEDULE '1 MINUTE'        so the failure drill shows quickly (template default is 5 minutes)
 CREATE OR REPLACE ALERT OPENFLOW_DB.OPENFLOW_SCHEMA.POSTGRES_INGEST_TABLE_FAILURE_ALERT
+  FROM TEMPLATE OPENFLOW_GEN2_TABLE_REPLICATION_FAILURE
   WAREHOUSE = RETAIL_HOL_WH
   SCHEDULE = '1 MINUTE'
-  COMMENT = 'Fires when any table replicated by POSTGRES_INGEST reports a FAILED db.table.status'
-  IF (EXISTS (
-    SELECT record_attributes:"connector.name"::STRING      AS connector,
-           record_attributes:"source.schema.name"::STRING  AS source_schema,
-           record_attributes:"source.table.name"::STRING   AS source_table,
-           value::NUMBER                                   AS status,
-           timestamp                                       AS observed_at_utc
-    FROM OPENFLOW_DB.OPENFLOW_SCHEMA.EVENTS
-    WHERE timestamp > DATEADD('minute', -10, SYSDATE())
-      AND record_type = 'METRIC'
-      AND record:metric:name = 'db.table.status'
-    QUALIFY ROW_NUMBER() OVER (PARTITION BY source_schema, source_table ORDER BY timestamp DESC) = 1
-      AND status >= 4
-  ))
-  THEN
-    INSERT INTO OPENFLOW_DB.OPENFLOW_SCHEMA.REPLICATION_ALERT_LOG
-      SELECT CURRENT_TIMESTAMP(), connector, source_schema, source_table, status, observed_at_utc
-      FROM TABLE(RESULT_SCAN(SNOWFLAKE.ALERT.GET_CONDITION_QUERY_UUID()));
+  TEMPLATE_PARAMS = '{
+  "template_variables" : {
+    "LOOKBACK_WINDOW_IN_HOURS" : 1,
+    "SCOPE_ACTIVE" : "OPENFLOW_CONNECTOR",
+    "SCOPE_NAME" : "OPENFLOW_DB.OPENFLOW_SCHEMA.POSTGRES_INGEST",
+    "TABLE_NAMES" : "",
+    "NOTIFICATION_MODE" : "IN_APP",
+    "EMAIL_NOTIFICATION_INTEGRATION" : "",
+    "WEBHOOK_NOTIFICATION_INTEGRATION" : "",
+    "QUEUE_NOTIFICATION_INTEGRATION" : ""
+  }
+}';
 
 ALTER ALERT OPENFLOW_DB.OPENFLOW_SCHEMA.POSTGRES_INGEST_TABLE_FAILURE_ALERT RESUME;  -- alerts are created suspended
 
 -- 12. Did it fire? (after scripts/fail_replication.py --break; allow ~2-3 min: 60 s metric + 1 min schedule)
+--     The template keeps no log table (no REPLICATION_ALERT_LOG); firings show here and in Monitoring -> Alerts.
+--     It reports TRIGGERED on every run while a table is failed but notifies at most once per hour.
 SELECT name, state, scheduled_time, completed_time, sql_error_message
 FROM TABLE(OPENFLOW_DB.INFORMATION_SCHEMA.ALERT_HISTORY(
   SCHEDULED_TIME_RANGE_START => DATEADD('minute', -30, CURRENT_TIMESTAMP()),
   ALERT_NAME => 'POSTGRES_INGEST_TABLE_FAILURE_ALERT'))
 ORDER BY scheduled_time DESC
 LIMIT 10;
-SELECT * FROM OPENFLOW_DB.OPENFLOW_SCHEMA.REPLICATION_ALERT_LOG ORDER BY fired_at DESC LIMIT 20;
+
+-- Which table failed? Same per-table status the alert reads (query 11 in 04b_observability.sql has the full version).
+SELECT record_attributes:"source.schema.name"::STRING AS source_schema,
+       record_attributes:"source.table.name"::STRING  AS source_table,
+       value::NUMBER                                  AS status,
+       timestamp                                      AS observed_at_utc
+FROM OPENFLOW_DB.OPENFLOW_SCHEMA.EVENTS
+WHERE timestamp > DATEADD('minute', -10, SYSDATE())
+  AND record_type = 'METRIC'
+  AND record:metric:name = 'db.table.status'
+QUALIFY ROW_NUMBER() OVER (PARTITION BY source_schema, source_table ORDER BY timestamp DESC) = 1
+  AND status >= 4;
 
 -- Dashboard (Snowsight UI): Ingestion -> Openflow -> Connector Observability
 --   Event table filter: OPENFLOW_DB.OPENFLOW_SCHEMA.EVENTS   Time frame: Last Hour
