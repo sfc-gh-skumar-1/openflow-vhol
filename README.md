@@ -376,24 +376,27 @@ Chart query 9 in Snowsight (minute on X, latency on Y) to see the latency line w
 
 *Break it on purpose.* An operator needs to know when a table stops replicating, without watching a dashboard:
 
-To receive email alerts, add your email to your profile and verify it.
-1. In Snowsight, **select your user profile at the bottom left of the screen** 
-2. Click on **Settings**.
-3. Enter your email address in the profile. You will get a verification email.
-4. Verify your email before you ask Coco to create the alert.
-
 > Create an alert that fires when any table in POSTGRES_INGEST fails replication. Then break one table on purpose so I can see it fire.
 
-You don't write the alert logic. Snowflake ships **Openflow alert templates**, and CoCo creates
+You don't write the alert logic. Snowflake ships **Openflow alert templates**, and the lab creates
 `POSTGRES_INGEST_TABLE_FAILURE_ALERT` from the built-in **Table replication failure alert (Gen2)** template
 (`CREATE ALERT ... FROM TEMPLATE OPENFLOW_GEN2_TABLE_REPLICATION_FAILURE`), setting only the scope (the
-`POSTGRES_INGEST` connector), a 1-minute schedule and in-app notification. Then it runs `scripts/fail_replication.py --break`, which adds a new
+`POSTGRES_INGEST` connector), a 1-minute schedule and in-app notification.
+
+The template notifies the user who creates the alert. CoCo is logged in as `VHOLuser`, which never signs in to
+Snowsight, so this one step is yours:
+1. CoCo grants `OPENFLOW_ADMIN` what the alert needs, then shows you a short SQL block (PART B in
+   `solutions/04b_observability.sql`).
+2. Paste it into a **Snowsight worksheet** (signed in as your usual web user) and run it. It switches to
+   `OPENFLOW_ADMIN`, creates the alert and resumes it.
+3. Tell CoCo it's done.
+
+CoCo then runs `scripts/fail_replication.py --break`, which adds a new
 Postgres table **without a primary key** (`bronze.pos_events`) to replication. Within about 2 minutes:
 - `pos_events` shows **failed** (`4008 MISSING_PRIMARY_KEYS`) in the dashboard's **View Details**.
   If the connector shows **Unhealthy**, try **Troubleshoot** for the AI root cause.
-- The alert fires: it shows **TRIGGERED** in its alert history (CoCo shows it) and in Snowsight **Monitoring -> Alerts**.
-  The in-app notification goes to the user who created the alert (`VHOLuser`), so check the history rather than
-  waiting for a pop-up in your Snowsight session.
+- The alert fires: you get an **in-app notification** in Snowsight (the bell), and it shows **TRIGGERED** in its
+  alert history (CoCo shows it) and in **Monitoring -> Alerts**.
 - The other 5 tables keep replicating. A failure is isolated to one table.
 
 > Fix the broken table.
