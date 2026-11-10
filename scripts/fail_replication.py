@@ -8,7 +8,8 @@
          The 5 lab tables keep replicating: the failure is isolated to one table.
 --fix    removes pos_events from the connector and the publication, and drops it from Postgres.
 
-Both modes are safe to re-run (e.g. after a partial failure): publication membership and the connector's
+By default the script returns as soon as START is sent (the connector finishes starting on its own);
+pass --wait to block until it is RUNNING again. Both modes are safe to re-run (e.g. after a partial failure): publication membership and the connector's
 live version are checked before they are changed.
 
 Auth (pick one):
@@ -67,7 +68,7 @@ def drop_from_publication(cur):
     print(f"PG  ALTER PUBLICATION openflow_retail_pub DROP TABLE bronze.{DRILL_TABLE}")
 
 
-def set_connector_tables(cur, tables):
+def set_connector_tables(cur, tables, wait_for_running=False):
     """Stop the connector, set its replicated-table list in the live config.json, commit and start it again."""
     run(cur, "USE ROLE OPENFLOW_ADMIN")
     run(cur, "USE DATABASE OPENFLOW_DB")
@@ -98,7 +99,12 @@ def set_connector_tables(cur, tables):
     run(cur, "ALTER OPENFLOW CONNECTOR POSTGRES_INGEST COMMIT")
     print("   ", run(cur, WAIT)[0][0])
     run(cur, "ALTER OPENFLOW CONNECTOR POSTGRES_INGEST START")
-    print("   ", run(cur, WAIT)[0][0])
+    if wait_for_running:
+        print("   ", run(cur, WAIT)[0][0])
+    else:
+        # START is asynchronous; nothing in the lab needs to block until RUNNING, so return now (saves ~1-2 min).
+        print("    START sent; the connector reaches RUNNING in ~1-2 min "
+              "(check: SHOW OPENFLOW CONNECTORS LIKE 'POSTGRES_INGEST')")
     print("   ", run(cur, "SHOW OPENFLOW CONNECTORS LIKE 'POSTGRES_INGEST'", show=False)[0][:3])
 
 
@@ -110,6 +116,7 @@ def main():
     m = p.add_mutually_exclusive_group(required=True)
     m.add_argument("--break", dest="mode", action="store_const", const="break")
     m.add_argument("--fix", dest="mode", action="store_const", const="fix")
+    p.add_argument("--wait", action="store_true", help="block until the connector is RUNNING again after START")
     args = p.parse_args()
 
     conn = connect(args)
@@ -121,18 +128,19 @@ def main():
             f"INSERT INTO bronze.{DRILL_TABLE} (store_id, event_type) VALUES (1, 'open'), (2, 'open'), (3, 'close')",
             add_to_publication,
         ])
-        set_connector_tables(cur, f'{TABLES},"bronze"."{DRILL_TABLE}"')
+        set_connector_tables(cur, f'{TABLES},"bronze"."{DRILL_TABLE}"', args.wait)
         print(f"\nBroken on purpose: bronze.{DRILL_TABLE} has no primary key. In ~1-2 min expect "
               "db.table.status = 4008 (query 11), a row in REPLICATION_ALERT_LOG (query 12),\n"
               "and the table marked failed in Connector Observability -> POSTGRES_INGEST -> View Details. "
               "Then run with --fix.")
     else:
-        set_connector_tables(cur, TABLES)
+        set_connector_tables(cur, TABLES, args.wait)
         postgres([
             drop_from_publication,
             f"DROP TABLE IF EXISTS bronze.{DRILL_TABLE}",
         ])
-        print(f"\nFixed: bronze.{DRILL_TABLE} removed from replication; the 5 lab tables are unaffected.")
+        print(f"\nFixed: bronze.{DRILL_TABLE} removed from replication; the 5 lab tables are unaffected. "
+              "The connector is restarting in the background; you can carry on (e.g. Act 5) now.")
     conn.close()
 
 

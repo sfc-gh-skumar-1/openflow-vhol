@@ -171,7 +171,9 @@ Kick off the deployment and immediately continue to Act 2 — do not block on AC
   EXECUTE ALERT; if ALERT_HISTORY shows "EXECUTE ALERT privilege must be granted to owner role", recreate it as ACCOUNTADMIN. Then
   `<venv-python> scripts/fail_replication.py --account <ORG-ACCOUNT> --break` (adds `bronze.pos_events`, no primary key,
   to the publication and connector; expect `db.table.status = 4008`). Wait ~3 min, show query 11 and query 12, and
-  point to View Details on the dashboard. Restore with `--fix` when asked (or before Act 5). Only `pos_events` is
+  point to View Details on the dashboard. Restore with `--fix` when asked (or before Act 5): **run `--fix` in the background** (bash `run_in_background`)
+  and move straight on with the attendee; don't sit waiting on it. Both modes return as soon as START is sent
+  (add `--wait` only if you must block until RUNNING). Never hand-patch around script errors; `git pull` first. Only `pos_events` is
   ever broken — never alter the 5 lab tables. Mention the Snowsight OPENFLOW alert template as the no-SQL option.
 
 ### Act 5 — Silver + Gold Dynamic Iceberg Tables (`solutions/05_silver.sql`, `06_gold.sql`)

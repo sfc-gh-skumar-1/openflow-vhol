@@ -381,7 +381,8 @@ Postgres table **without a primary key** (`bronze.pos_events`) to replication. W
 
 > Fix the broken table.
 
-CoCo runs `scripts/fail_replication.py --fix`, which removes `pos_events` from replication.
+CoCo runs `scripts/fail_replication.py --fix` in the background, which removes `pos_events` from replication.
+The connector restarts on its own in about a minute, so you can carry straight on to Act 5.
 
 Prefer no SQL? In Snowsight, **Monitoring -> Alerts** has an **OPENFLOW** template group with a ready-made
 **Table replication failure alert** that can email or call a webhook.
