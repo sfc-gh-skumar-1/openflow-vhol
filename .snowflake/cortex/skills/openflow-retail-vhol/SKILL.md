@@ -91,7 +91,7 @@ fails because an earlier one hadn't run, re-run the remaining statements in file
 | PG network rule / policy | `RETAIL_HOL_ADMIN.NETWORK.RETAIL_HOL_INGRESS_RULE` (POSTGRES_INGRESS) / `RETAIL_HOL_NETWORK_POLICY` |
 | Egress rule / EAI | `RETAIL_HOL_ADMIN.NETWORK.RETAIL_HOL_EGRESS_RULE` (HOST_PORT, placeholder `example.com:5432` until Act 2 — must be resolvable; never `*.invalid`) / `RETAIL_HOL_POSTGRES_EAI` |
 | Openflow namespace | `OPENFLOW_DB.OPENFLOW_SCHEMA` |
-| Roles | `OPENFLOW_ADMIN`, `POSTGRES_INGEST_SERVICE_ROLE` (execute-as role) |
+| Roles | `OPENFLOW_ADMIN` (granted to current user and SYSADMIN), `POSTGRES_INGEST_SERVICE_ROLE` (execute-as role) |
 | Deployment | `SPCS_SOM` (`DEPLOYMENT_TYPE='SNOWFLAKE'`), ~15 min to ACTIVE |
 | Event table | `OPENFLOW_DB.OPENFLOW_SCHEMA.EVENTS`, attached to `SPCS_SOM` |
 
