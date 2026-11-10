@@ -9,7 +9,7 @@
 | 30–45 | 3 | Highlight the connector-as-code moment: show `config.json`, COMMIT, START. Mention that the wizard (Option B) builds the same connector | Runtime, connector (SQL or wizard), Bronze checkpoint |
 | 45–58 | 4 | Open Connector Observability live. Start the continuous generator, chart latency, then break `pos_events` and show the alert firing while the other tables keep flowing | Observability SQL, dashboard, generator, latency, alert drill |
 | 55–70 | 5 | Show AI sentiment on the worst reviews, then FROZEN WHERE in `SHOW DYNAMIC TABLES` | Silver, Gold |
-| 70–82 | 6 | Ask each persona's question, then open Agent Studio and **Add to Snowflake CoWork** | Semantic view, agent, questions, CoWork |
+| 70–82 | 6 | Ask each persona's question, then open Agent Studio -> Preview in Snowflake CoWork (CoCo already published it as ACCOUNTADMIN) | Semantic view, agent, questions, CoWork |
 | 82–85 | 7 | Recap the architecture, then cleanup | Cleanup (optional) |
 
 ## Talk track (one line per act)

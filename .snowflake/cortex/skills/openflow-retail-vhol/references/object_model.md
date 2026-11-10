@@ -14,7 +14,7 @@ notebooks in `notebooks/`. Run the file for each part in order; do not improvise
 | 5a | `solutions/05_silver.sql` | ACCOUNTADMIN (grants), then RETAIL_HOL_ROLE |
 | 5b | `solutions/06_gold.sql` | RETAIL_HOL_ROLE |
 | 6a | `solutions/07_semantic_view.sql` | RETAIL_HOL_ROLE |
-| 6b | `solutions/08_agent.sql`, then Snowsight Agent Studio -> Add to Snowflake CoWork (UI) | RETAIL_HOL_ROLE |
+| 6b | `solutions/08_agent.sql` (agent, then the CoWork publish block) | RETAIL_HOL_ROLE, then ACCOUNTADMIN for CoWork |
 | 7 | `solutions/99_cleanup.sql` | ACCOUNTADMIN — confirm first |
 
 ## Gotchas

@@ -206,7 +206,11 @@ Bronze column names are UPPERCASE (connector uses case-insensitive identifiers).
 - To change the agent, re-run the full CREATE OR REPLACE statement; do not use a workspace
   file edit/redeploy path.
 - Snowsight UI (attendee clicks; you can't do it from SQL here): **AI (or AI & ML) -> Agent Studio -> RETAIL_ANALYST_AGENT**.
-  Publish for business users with **+ Add to Snowflake CoWork** (top right), then on the Preview tab **Preview in Snowflake CoWork** -> pick Retail Analyst Agent -> ask the persona questions. Programmatic option: `SNOWFLAKE.CORTEX.DATA_AGENT_RUN`
+  **Always publish it to CoWork yourself** right after creating the agent: run the CoWork block at the end of
+  `08_agent.sql` as ACCOUNTADMIN (`CREATE SNOWFLAKE INTELLIGENCE IF NOT EXISTS ...`, `GRANT USAGE ON AGENT`,
+  `ALTER SNOWFLAKE INTELLIGENCE SNOWFLAKE_INTELLIGENCE_OBJECT_DEFAULT ADD AGENT ...`, `GRANT USAGE ON SNOWFLAKE INTELLIGENCE ... TO ROLE PUBLIC`).
+  "Already added" on re-run is fine. The UI button needs MODIFY on the CoWork object (ACCOUNTADMIN only), so other roles get
+  "You do not have MODIFY privilege". Then the attendee opens the agent in Agent Studio and, on the Preview tab **Preview in Snowflake CoWork** -> pick Retail Analyst Agent -> ask the persona questions. Programmatic option: `SNOWFLAKE.CORTEX.DATA_AGENT_RUN`
   (example in `08_agent.sql`).
 
 ## Preflight (run before Act 1)
@@ -227,7 +231,8 @@ accepted once by ORGADMIN; if deployment creation fails mentioning terms, say so
 3. (Deployment ACTIVE) Attendee asks for the connector -> you detect the missing runtime and create it (SMALL) -> ACTIVE -> tasks -> connector via SQL (Option A) or wizard guidance (Option B) -> START. Checkpoints R, C.
 4. Observability: `04b_observability.sql` queries 1-8 -> dashboard -> `cdc_demo.py --continuous` (background) -> latency queries 9-11 -> alert -> `fail_replication.py --break` -> queries 11-12 -> `--fix`. Checkpoint O.
 5. Bronze grants -> Silver -> Gold. Checkpoints S, G.
-6. Semantic view -> agent -> ask persona questions (from `references/agent_spec.md`) with DATA_AGENT_RUN, then walk them through Agent Studio -> Add to Snowflake CoWork.
+6. Semantic view -> agent -> ask persona questions (from `references/agent_spec.md`) with DATA_AGENT_RUN -> publish to CoWork via the SQL block in `08_agent.sql` (ACCOUNTADMIN) -> point them to
+   Agent Studio -> Preview -> Preview in Snowflake CoWork.
    Data note: the generated inventory is never CRITICAL/LOW (~86% OVERSTOCKED), so the Supply Chain story is
    overstock + rebalancing, not stock-outs. The 30 s budget can cut off long answers; suggest "continue".
 7. Cleanup only when explicitly asked: stop any background `cdc_demo.py`, then `solutions/99_cleanup.sql` (confirm first — destructive).
@@ -253,7 +258,8 @@ accepted once by ORGADMIN; if deployment creation fails mentioning terms, say so
   (SILVER_SALES 21,875 rows = 4,375 x 5 regions; SILVER_INVENTORY 634; SILVER_PRODUCT_REVIEWS 512).
   Peek: negative reviews (`AI_SENTIMENT_LABEL = 'negative'`) from `SILVER_PRODUCT_REVIEWS` with `AI_REVIEW_THEME`.
 - **G (gold):** `SHOW DYNAMIC TABLES IN SCHEMA RETAIL_HOL_ICEBERG.GOLD_MANAGED_ICEBERG;` -> 3 tables with `immutable_where` set; refresh history query in `06_gold.sql`.
-- **A (agent):** `SHOW AGENTS IN SCHEMA RETAIL_HOL_ICEBERG.GOLD_MANAGED_ICEBERG;` and one DATA_AGENT_RUN answer.
+- **A (agent):** `SHOW AGENTS IN SCHEMA RETAIL_HOL_ICEBERG.GOLD_MANAGED_ICEBERG;`, one DATA_AGENT_RUN answer, and
+  `SHOW AGENTS IN SNOWFLAKE INTELLIGENCE SNOWFLAKE_INTELLIGENCE_OBJECT_DEFAULT;` lists RETAIL_ANALYST_AGENT.
 
 ## Why it matters (say one line after each part)
 1. Infrastructure-as-SQL, least-privilege by construction (connector runs as a single ingest role), observable from minute one (event table).

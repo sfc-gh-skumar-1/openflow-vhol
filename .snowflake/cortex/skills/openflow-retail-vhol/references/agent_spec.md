@@ -38,8 +38,8 @@ WHERE f.value:type::VARCHAR = 'text';
 ```
 
 ## More questions to explore (Snowflake CoWork)
-Snowsight -> AI (or AI & ML) -> Agent Studio -> RETAIL_ANALYST_AGENT; publish with
-**+ Add to Snowflake CoWork**, then use **Preview -> Preview in Snowflake CoWork** to chat there.
+Snowsight -> AI (or AI & ML) -> Agent Studio -> RETAIL_ANALYST_AGENT; CoCo publishes it to CoWork with SQL (ACCOUNTADMIN);
+then use **Preview -> Preview in Snowflake CoWork** to chat there.
 ### Merchandising & Assortment
 | # | Question |
 |---|----------|

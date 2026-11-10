@@ -89,7 +89,10 @@ SELECT f.value:text::VARCHAR AS ANSWER
 FROM raw, LATERAL FLATTEN(input => resp:content) f
 WHERE f.value:type::VARCHAR = 'text';
 
--- Optional: surface the agent in Snowflake Intelligence / CoWork
+-- Publish the agent to Snowflake CoWork (REQUIRED for Act 6; run as ACCOUNTADMIN).
+-- Adding an agent to CoWork needs MODIFY on the account's CoWork object, which only ACCOUNTADMIN has by
+-- default. Clicking "+ Add to Snowflake CoWork" in Agent Studio under RETAIL_HOL_ROLE / an attendee role fails
+-- with "You do not have MODIFY privilege to add agents to Snowflake CoWork", so CoCo does it here instead.
 USE ROLE ACCOUNTADMIN;
 -- 1. Ensure the CoWork (Snowflake Intelligence) object exists
 CREATE SNOWFLAKE INTELLIGENCE IF NOT EXISTS SNOWFLAKE_INTELLIGENCE_OBJECT_DEFAULT;
@@ -99,5 +102,12 @@ GRANT USAGE ON AGENT RETAIL_HOL_ICEBERG.GOLD_MANAGED_ICEBERG.RETAIL_ANALYST_AGEN
   TO ROLE RETAIL_HOL_ROLE;
   
 -- 3. Add the agent to the CoWork object so it appears in the dropdown
-ALTER SNOWFLAKE INTELLIGENCE SNOWFLAKE_INTELLIGENCE_OBJECT_DEFAULT 
+ALTER SNOWFLAKE INTELLIGENCE SNOWFLAKE_INTELLIGENCE_OBJECT_DEFAULT
   ADD AGENT RETAIL_HOL_ICEBERG.GOLD_MANAGED_ICEBERG.RETAIL_ANALYST_AGENT;
+-- If it says the agent is already added, that's fine (re-run).
+
+-- 4. Let users see the CoWork agent list (no-op if already granted)
+GRANT USAGE ON SNOWFLAKE INTELLIGENCE SNOWFLAKE_INTELLIGENCE_OBJECT_DEFAULT TO ROLE PUBLIC;
+
+-- Checkpoint: the agent is published
+SHOW AGENTS IN SNOWFLAKE INTELLIGENCE SNOWFLAKE_INTELLIGENCE_OBJECT_DEFAULT;
