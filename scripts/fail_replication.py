@@ -8,6 +8,9 @@
          The 5 lab tables keep replicating: the failure is isolated to one table.
 --fix    removes pos_events from the connector and the publication, and drops it from Postgres.
 
+Both modes are safe to re-run (e.g. after a partial failure): publication membership and the connector's
+live version are checked before they are changed.
+
 Auth (pick one):
   --account ORG-ACCOUNT    uses user VHOLuser + the PAT in secret.pat (repo root)
   --connection NAME        uses a named connection from ~/.snowflake/connections.toml
@@ -19,11 +22,17 @@ import sys
 
 import psycopg2
 
-from configure_connector import DRIVER, LIVE, ROOT, TABLES, WORK, connect, run
+from configure_connector import DRIVER, LIVE, ROOT, TABLES, WORK, connect, ensure_live_version, run
 
 DRILL_TABLE = "pos_events"
 WAIT = "SELECT SYSTEM$WAIT_FOR_STABLE_OPENFLOW_CONNECTORS(600, 'POSTGRES_INGEST')"
 TABLE_KEY = ("Replication table schema", "Included Comma Separated Source Table Names")
+
+
+def in_publication(cur):
+    cur.execute("SELECT 1 FROM pg_publication_tables WHERE pubname = 'openflow_retail_pub' "
+                "AND schemaname = 'bronze' AND tablename = %s", (DRILL_TABLE,))
+    return cur.fetchone() is not None
 
 
 def postgres(sql_statements):
@@ -34,9 +43,28 @@ def postgres(sql_statements):
     pg.autocommit = True
     cur = pg.cursor()
     for sql in sql_statements:
+        if callable(sql):  # a step that decides for itself whether to run (keeps re-runs safe)
+            sql(cur)
+            continue
         cur.execute(sql)
         print(f"PG  {' '.join(sql.split())[:100]}")
     pg.close()
+
+
+def add_to_publication(cur):
+    if in_publication(cur):
+        print(f"PG  bronze.{DRILL_TABLE} already in openflow_retail_pub (skipped)")
+        return
+    cur.execute(f"ALTER PUBLICATION openflow_retail_pub ADD TABLE bronze.{DRILL_TABLE}")
+    print(f"PG  ALTER PUBLICATION openflow_retail_pub ADD TABLE bronze.{DRILL_TABLE}")
+
+
+def drop_from_publication(cur):
+    if not in_publication(cur):
+        print(f"PG  bronze.{DRILL_TABLE} not in openflow_retail_pub (skipped)")
+        return
+    cur.execute(f"ALTER PUBLICATION openflow_retail_pub DROP TABLE bronze.{DRILL_TABLE}")
+    print(f"PG  ALTER PUBLICATION openflow_retail_pub DROP TABLE bronze.{DRILL_TABLE}")
 
 
 def set_connector_tables(cur, tables):
@@ -50,8 +78,7 @@ def set_connector_tables(cur, tables):
     if status[0][1] == "RUNNING":
         run(cur, "ALTER OPENFLOW CONNECTOR POSTGRES_INGEST STOP")
         print("   ", run(cur, WAIT)[0][0])
-    if not run(cur, f"LS '{LIVE}'", show=False):
-        run(cur, "ALTER OPENFLOW CONNECTOR POSTGRES_INGEST ADD LIVE VERSION FROM LAST")
+    ensure_live_version(cur)
 
     os.makedirs(WORK, exist_ok=True)
     run(cur, f"GET '{LIVE}config.json' 'file://{WORK}/'")
@@ -92,7 +119,7 @@ def main():
             f"CREATE TABLE IF NOT EXISTS bronze.{DRILL_TABLE} "
             "(store_id INT, event_type TEXT, event_at TIMESTAMPTZ DEFAULT NOW())",  # no PRIMARY KEY on purpose
             f"INSERT INTO bronze.{DRILL_TABLE} (store_id, event_type) VALUES (1, 'open'), (2, 'open'), (3, 'close')",
-            f"ALTER PUBLICATION openflow_retail_pub ADD TABLE bronze.{DRILL_TABLE}",
+            add_to_publication,
         ])
         set_connector_tables(cur, f'{TABLES},"bronze"."{DRILL_TABLE}"')
         print(f"\nBroken on purpose: bronze.{DRILL_TABLE} has no primary key. In ~1-2 min expect "
@@ -102,7 +129,7 @@ def main():
     else:
         set_connector_tables(cur, TABLES)
         postgres([
-            f"ALTER PUBLICATION openflow_retail_pub DROP TABLE bronze.{DRILL_TABLE}",
+            drop_from_publication,
             f"DROP TABLE IF EXISTS bronze.{DRILL_TABLE}",
         ])
         print(f"\nFixed: bronze.{DRILL_TABLE} removed from replication; the 5 lab tables are unaffected.")

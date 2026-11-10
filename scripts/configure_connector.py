@@ -70,6 +70,21 @@ def desired(host):
     }
 
 
+def ensure_live_version(cur):
+    """A stopped/committed connector has no live version; LS on it raises instead of returning no rows."""
+    try:
+        if run(cur, f"LS '{LIVE}'", show=False):
+            return
+    except snowflake.connector.errors.ProgrammingError:
+        pass
+    try:
+        run(cur, "ALTER OPENFLOW CONNECTOR POSTGRES_INGEST ADD LIVE VERSION FROM LAST")
+    except snowflake.connector.errors.ProgrammingError as e:
+        if "already" not in str(e).lower():  # a live version appeared in the meantime: fine
+            raise
+        print(f"    live version already exists ({e.msg})")
+
+
 def connect(args):
     if args.connection:
         return snowflake.connector.connect(connection_name=args.connection)
@@ -123,8 +138,7 @@ def main():
         print(f"Connector is {status}; nothing to configure. (Stop it and ADD LIVE VERSION FROM LAST to edit.)")
         return
     # After a commit there is no live version; create one from the last committed config.
-    if not run(cur, f"LS '{LIVE}'", show=False):
-        run(cur, "ALTER OPENFLOW CONNECTOR POSTGRES_INGEST ADD LIVE VERSION FROM LAST")
+    ensure_live_version(cur)
 
     run(cur, f"GET '{LIVE}config.json' 'file://{WORK}/'")
     path = os.path.join(WORK, "config.json")
