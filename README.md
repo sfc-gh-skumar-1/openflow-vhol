@@ -78,7 +78,6 @@ docs/                             architecture diagram + presenter guide (timing
 1. Clone the repo. CoCo Desktop will ask for this folder when it launches.
    ```
    git clone https://github.com/sfc-gh-skumar-1/openflow-vhol.git
-   cd openflow-vhol
    ```
    (No git? Use **Code -> Download ZIP** and unzip it.)
 
@@ -127,7 +126,8 @@ docs/                             architecture diagram + presenter guide (timing
    Save it in the repo root using the template `secret.pat_example`:
    1. Open `secret.pat_example` and replace the placeholder line with your token. The file must contain **only the token**
       (one line, no quotes, no extra text).
-   2. Rename the file to **`secret.pat`** (macOS/Linux: `mv secret.pat_example secret.pat`; Windows: `ren secret.pat_example secret.pat`).
+   2. Rename the file to **`secret.pat`**, in Finder / File Explorer or in CoCo Desktop's file tree (right-click -> Rename).
+      From a terminal, run it inside the cloned `openflow-vhol` folder: `mv secret.pat_example secret.pat` (Windows: `ren secret.pat_example secret.pat`).
 
    > **Note:** `secret.pat` is listed in `.gitignore`, so it is never committed or pushed to GitHub.
 
