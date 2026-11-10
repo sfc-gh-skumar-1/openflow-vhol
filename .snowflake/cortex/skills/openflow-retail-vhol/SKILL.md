@@ -163,6 +163,9 @@ Kick off the deployment and immediately continue to Act 2 — do not block on AC
 - Latency (queries 9-11 in `04b_observability.sql`): `db.commit.to.merge.latency` (per table, end to end),
   `db.commit.to.capture.latency`, `db.capture.to.journal.latency` (connector level), all in ms, reported every 60 s
   only while data flows — if they return 0 rows, start the generator. Report p50/max in seconds.
+  If query 10 shows fewer than 3 `reports` per metric, do NOT silently stall: immediately show what exists
+  (the values and their timestamps, labelled "early, N reports"), say a new report arrives every 60 s, then
+  wait ~2-3 min (`sleep`) and re-run queries 9-10 once to give the fuller p50/max. Don't loop more than twice.
 - Alert + failure drill: create the alert block in `04b_observability.sql` (`REPLICATION_ALERT_LOG` table,
   `POSTGRES_INGEST_TABLE_FAILURE_ALERT`, then `ALTER ALERT ... RESUME`) **as ACCOUNTADMIN** — the owner role needs
   EXECUTE ALERT; if ALERT_HISTORY shows "EXECUTE ALERT privilege must be granted to owner role", recreate it as ACCOUNTADMIN. Then

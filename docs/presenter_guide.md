@@ -45,7 +45,7 @@ The generated inventory is never CRITICAL or LOW (~86% OVERSTOCKED), so tell the
 - The `severity_text` error query from the original notebook never matches Openflow logs (verified: 0 rows while 116 errors existed). Use query 5 in `04b_observability.sql`.
 
 ## Act 4 drill notes
-- Start `cdc_demo.py --continuous` early in Act 4; latency metrics are only reported while data flows (every 60 s).
+- Start `cdc_demo.py --continuous` early in Act 4; latency metrics are only reported while data flows (every 60 s). Ask the latency question 3–5 min after starting it; asked sooner, there's only 1–2 reports and CoCo will wait and re-check.
 - `fail_replication.py --break` stops and restarts the connector (~1–2 min) to add `pos_events`; the failure status and alert follow ~2–3 min later. Fill the gap with the latency chart.
 - Always run `--fix` before Act 5 so the dashboard is green again. Only `pos_events` is affected; Silver/Gold don't read it.
 - The SQL alert logs to a table (no notification integration needed). For email/webhook, show the OPENFLOW **Table replication failure alert** template in Snowsight Alerts.
