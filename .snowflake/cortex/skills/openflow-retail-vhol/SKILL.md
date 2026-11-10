@@ -186,7 +186,8 @@ Kick off the deployment and immediately continue to Act 2 — do not block on AC
   `<venv-python> scripts/fail_replication.py --account <ORG-ACCOUNT> --break` (adds `bronze.pos_events`, no primary key,
   to the publication and connector; expect `db.table.status = 4008`). Wait ~3 min, show query 11 (pos_events = 4008) and query 12 (ALERT_HISTORY state TRIGGERED; the template keeps
   no log table, and its IN_APP notification goes only to VHOLuser, so point attendees to the history / Monitoring -> Alerts), and
-  point to View Details on the dashboard. Restore with `--fix` when asked (or before Act 5): **run `--fix` in the background** (bash `run_in_background`)
+  point to View Details on the dashboard. `--fix` also SUSPENDs the alert (its minimum 1-hour lookback would keep it TRIGGERED on the old 4008) and `--break`
+  RESUMEs it; tell the attendee that. Restore with `--fix` when asked (or before Act 5): **run `--fix` in the background** (bash `run_in_background`)
   and move straight on with the attendee; don't sit waiting on it. Both modes return as soon as START is sent
   (add `--wait` only if you must block until RUNNING). Never hand-patch around script errors; `git pull` first. Only `pos_events` is
   ever broken — never alter the 5 lab tables. Mention that Snowsight Monitoring -> Alerts -> OPENFLOW offers the same template (email/webhook) as the no-SQL option.
@@ -215,7 +216,7 @@ Bronze column names are UPPERCASE (connector uses case-insensitive identifiers).
   via `CALL SYSTEM$CREATE_SEMANTIC_VIEW_FROM_YAML('RETAIL_HOL_ICEBERG.GOLD_MANAGED_ICEBERG', $$...$$)`.
   Use the YAML verbatim from `solutions/07_semantic_view.sql`.
 - Agent `RETAIL_HOL_ICEBERG.GOLD_MANAGED_ICEBERG.RETAIL_ANALYST_AGENT`, `CREATE OR REPLACE AGENT ... FROM SPECIFICATION $$ ... $$`
-  verbatim from `solutions/08_agent.sql` (`models.orchestration: auto`, budget 30s / 16000 tokens).
+  verbatim from `solutions/08_agent.sql` (`models.orchestration: auto`, budget 120s / 32000 tokens).
   Dollar-quote with plain `$$` (named tags like `$spec$` fail in CoCo's SQL path).
 - To change the agent, re-run the full CREATE OR REPLACE statement; do not use a workspace
   file edit/redeploy path.
@@ -231,9 +232,16 @@ Bronze column names are UPPERCASE (connector uses case-insensitive identifiers).
 
 ## Preflight (run before Act 1)
 ```sql
+USE ROLE ACCOUNTADMIN;
 SELECT CURRENT_REGION() AS region, CURRENT_ACCOUNT() AS account;
 SHOW OPENFLOW DEPLOYMENTS;            -- command must be recognized
 SHOW POSTGRES INSTANCES;              -- command must be recognized
+-- AI functions need a warehouse, and on a fresh account the lab warehouse doesn't exist yet. Create it now
+-- (same DDL as 01_environment.sql, so Act 1 is a no-op for it), otherwise: "No active warehouse selected".
+CREATE WAREHOUSE IF NOT EXISTS RETAIL_HOL_WH
+  WAREHOUSE_SIZE = 'XSMALL' AUTO_SUSPEND = 60 AUTO_RESUME = TRUE INITIALLY_SUSPENDED = TRUE
+  COMMENT = 'Retail HOL warehouse';
+USE WAREHOUSE RETAIL_HOL_WH;
 SELECT AI_SENTIMENT('Smells amazing'):categories[0]:sentiment::VARCHAR AS cortex_ok;  -- expect 'positive'
 ```
 If any fails with "unsupported"/"unknown command", stop and tell the attendee which
@@ -250,9 +258,11 @@ accepted once by ORGADMIN; if deployment creation fails mentioning terms, say so
 6. Semantic view -> agent -> ask persona questions (from `references/agent_spec.md`) with DATA_AGENT_RUN -> publish to CoWork via the SQL block in `08_agent.sql` (ACCOUNTADMIN) -> point them to
    Agent Studio -> Preview -> Preview in Snowflake CoWork.
    Data note: the generated inventory is never CRITICAL/LOW (~86% OVERSTOCKED), so the Supply Chain story is
-   overstock + rebalancing, not stock-outs. The 30 s budget can cut off long answers; suggest "continue".
+   overstock + rebalancing, not stock-outs. The 120 s budget can still cut off very long answers; suggest "continue".
 7. Cleanup only when explicitly asked: stop any background `cdc_demo.py`, then `solutions/99_cleanup.sql` (confirm first — destructive).
    Do the pre-cleanup checks with SHOW / DESCRIBE (no warehouse needed); RETAIL_HOL_WH is dropped near the end.
+   Poll every `-- wait:` SHOW until the status is reached (including connector STOPPED before TERMINATE).
+   Drop the CoWork object only if `SHOW AGENTS IN SNOWFLAKE INTELLIGENCE ...` is empty after the agent is removed.
    SUSPEND/TERMINATE are async: poll the SHOW check after each until the status is reached before the
    next DROP (in `SHOW OPENFLOW DEPLOYMENTS` the status is the 3rd column; the 2nd is `type`).
    If the account has other Openflow runtimes or objects in `RETAIL_HOL_ADMIN` / using `RETAIL_HOL_ROLE`,
@@ -266,8 +276,9 @@ accepted once by ORGADMIN; if deployment creation fails mentioning terms, say so
 - **C (CDC):** `SHOW ICEBERG TABLES IN SCHEMA RETAIL_HOL_ICEBERG.BRONZE;` shows 5 tables, then
   per-table `COUNT(*)` equals the loader counts (snapshot lands ~1–3 min after START).
   If empty after ~5 min, run the error-log query in `solutions/04b_observability.sql` (`TRY_PARSE_JSON(value):level = 'ERROR'`, `record_type = 'LOG'`; NOT `record_attributes:severity_text`, which never matches Openflow logs).
-- **O (observability):** event-table telemetry query (query 4) returns LOG and METRIC rows; error-log query (5)
-  returns 0 rows; `cdc_demo.py` shows Bronze keeping up; latency query 9 returns rows; after `--break` query 11 shows
+- **O (observability):** event-table telemetry query (query 4) returns LOG and METRIC rows; query 5b (errors in the
+  last 5 min) returns 0 — query 5 may show a short burst of JDBC `RestRequest` network-timeout errors from the connector's
+  first seconds, which is normal (say so; don't troubleshoot it unless 5b is non-zero); `cdc_demo.py` shows Bronze keeping up; latency query 9 returns rows; after `--break` query 11 shows
   `pos_events` at 4008 and ALERT_HISTORY shows TRIGGERED; after `--fix` the 5 lab tables are still status 3; dashboard shows POSTGRES_INGEST **Healthy**
   with tables in **Incremental Replication**. Dashboard needs minimum versions (Snowflake deployment 1.26.0,
   runtime 2026.3.17.13, PostgreSQL connector 0.39.0); if it says **Upgrade required**, say so — SQL checks still work.

@@ -34,7 +34,7 @@ The SQL steps (`CREATE OPENFLOW CONNECTOR ... FROM DEFINITION OPENFLOW_POSTGRES_
 - Deployment `SPCS_SOM`: ~15 min to ACTIVE.
 - Postgres instance: ~5 min to READY. Loader: <1 min.
 - Runtime: ~4 min to ACTIVE. Connector create -> RUNNING: ~2 min. Snapshot in Bronze: ~1–2 min.
-- Silver/Gold creation including first AI refresh: ~1 min. Agent answers: 20–30 s. The 30 s budget can truncate multi-step answers ("continue" resumes).
+- Silver/Gold creation including first AI refresh: ~1 min. Agent answers: 30–60 s. The budget is 120 s / 32,000 tokens; a clean test run hit the old 30 s budget on 2 of 3 persona questions, which is why it was raised ("continue" still resumes).
 
 ## Data caveat for the story
 The generated inventory is never CRITICAL or LOW (~86% OVERSTOCKED), so tell the Supply Chain story as overstock and rebalancing, not stock-outs.

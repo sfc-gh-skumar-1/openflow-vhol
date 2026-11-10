@@ -32,7 +32,10 @@ FROM OPENFLOW_DB.OPENFLOW_SCHEMA.EVENTS
 WHERE timestamp > DATEADD('hour', -1, SYSDATE())
 GROUP BY record_type;
 
--- 5. Error logs from the Openflow runtime (last 30 min). Expect zero rows on a healthy run.
+-- 5. Error logs from the Openflow runtime (last 30 min).
+--    A short burst right after the connector STARTs is normal: net.snowflake.client...RestRequest
+--    "SocketTimeoutException / Stop retrying since elapsed time due to network issues" for a few seconds while the
+--    runtime's network comes up (seen on a clean run: 16 rows within 2 s, data loaded fine). Judge health by 5b.
 SELECT timestamp, runtime_key,
        parsed_log:level::STRING            AS log_level,
        parsed_log:loggerName::STRING       AS logger,
@@ -49,6 +52,16 @@ FROM (
 WHERE log_level = 'ERROR'
 ORDER BY timestamp DESC
 LIMIT 20;
+
+-- 5b. Errors still happening: last 5 minutes. Expect 0 once the connector has been running a few minutes.
+--     A non-zero count here (not just the startup burst above) is the signal to troubleshoot.
+SELECT COUNT(*) AS errors_last_5_min,
+       ARRAY_AGG(DISTINCT TRY_PARSE_JSON(value):loggerName::STRING) AS loggers
+FROM OPENFLOW_DB.OPENFLOW_SCHEMA.EVENTS
+WHERE timestamp > DATEADD('minutes', -5, SYSDATE())
+  AND record_type = 'LOG'
+  AND resource_attributes:"k8s.namespace.name" LIKE 'runtime-%'
+  AND TRY_PARSE_JSON(value):level::STRING = 'ERROR';
 
 -- 6. Stuck FlowFiles: connections with data queued > 30 minutes. Expect zero rows.
 SELECT * FROM (
@@ -178,6 +191,8 @@ SELECT PARSE_JSON(SYSTEM$GET_ALERT_TEMPLATE('OPENFLOW_GEN2_TABLE_REPLICATION_FAI
 --   NOTIFICATION_MODE IN_APP   needs no notification integration; v1 notifies only the user who ran this CREATE.
 --                              For email or webhook, set EMAIL / WEBHOOK and the matching *_NOTIFICATION_INTEGRATION.
 --   SCHEDULE '1 MINUTE'        so the failure drill shows quickly (template default is 5 minutes)
+--   LOOKBACK 1 hour            the minimum (whole hours). After --fix the alert would keep TRIGGERing for up to an hour
+--                              on the old failure, so fail_replication.py --fix suspends it and --break resumes it.
 CREATE OR REPLACE ALERT OPENFLOW_DB.OPENFLOW_SCHEMA.POSTGRES_INGEST_TABLE_FAILURE_ALERT
   FROM TEMPLATE OPENFLOW_GEN2_TABLE_REPLICATION_FAILURE
   WAREHOUSE = RETAIL_HOL_WH

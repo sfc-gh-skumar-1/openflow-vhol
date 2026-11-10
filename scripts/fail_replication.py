@@ -23,6 +23,7 @@ import os
 import sys
 
 import psycopg2
+import snowflake.connector
 
 from configure_connector import DRIVER, LIVE, ROOT, TABLES, WORK, connect, ensure_live_version, run
 
@@ -125,6 +126,19 @@ def edit_and_commit(cur, tables):
     print("   ", run(cur, WAIT)[0][0])
 
 
+ALERT = "OPENFLOW_DB.OPENFLOW_SCHEMA.POSTGRES_INGEST_TABLE_FAILURE_ALERT"
+
+
+def set_alert(cur, action):
+    """RESUME the drill alert on --break; SUSPEND it on --fix (its 1-hour lookback would keep firing on the
+    old failure). The alert is optional: skip quietly if it hasn't been created yet."""
+    try:
+        run(cur, "USE ROLE OPENFLOW_ADMIN")
+        run(cur, f"ALTER ALERT IF EXISTS {ALERT} {action}")
+    except snowflake.connector.errors.ProgrammingError as e:
+        print(f"    (alert not {action.lower()}d: {e.msg})")
+
+
 def main():
     p = argparse.ArgumentParser()
     g = p.add_mutually_exclusive_group(required=True)
@@ -146,18 +160,21 @@ def main():
             add_to_publication,
         ])
         set_connector_tables(cur, f'{TABLES},"bronze"."{DRILL_TABLE}"', args.wait)
+        set_alert(cur, "RESUME")
         print(f"\nBroken on purpose: bronze.{DRILL_TABLE} has no primary key. In ~1-2 min expect "
               "db.table.status = 4008 (query 11), the alert TRIGGERED in ALERT_HISTORY (query 12),\n"
               "and the table marked failed in Connector Observability -> POSTGRES_INGEST -> View Details. "
               "Then run with --fix.")
     else:
         set_connector_tables(cur, TABLES, args.wait)
+        set_alert(cur, "SUSPEND")
         postgres([
             drop_from_publication,
             f"DROP TABLE IF EXISTS bronze.{DRILL_TABLE}",
         ])
         print(f"\nFixed: bronze.{DRILL_TABLE} removed from replication; the 5 lab tables are unaffected. "
-              "The connector is restarting in the background; you can carry on (e.g. Act 5) now.")
+              "The connector is restarting in the background; you can carry on (e.g. Act 5) now.\n"
+              "The drill alert is suspended (its 1-hour lookback would keep firing on the old failure); --break resumes it.")
     conn.close()
 
 

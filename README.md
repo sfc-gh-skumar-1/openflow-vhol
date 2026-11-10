@@ -392,7 +392,8 @@ Postgres table **without a primary key** (`bronze.pos_events`) to replication. W
 
 > Fix the broken table.
 
-CoCo runs `scripts/fail_replication.py --fix` in the background, which removes `pos_events` from replication.
+CoCo runs `scripts/fail_replication.py --fix` in the background, which removes `pos_events` from replication and
+**suspends the alert**. The template looks back a whole hour, so it would otherwise keep firing on the old failure.
 The connector restarts on its own in about a minute, so you can carry straight on to Act 5.
 
 Prefer clicking? It's the same template in Snowsight: **Monitoring -> Alerts -> + Alert -> OPENFLOW** ->
@@ -505,7 +506,7 @@ encoding your own team's Openflow and pipeline conventions.
 | Loader can't connect to Postgres | Check that the instance is READY and that `pg_creds.json` has the right host. |
 | `setup_postgres.py`: instance exists but pg_creds.json is missing | The one-time password is lost. Drop `RETAIL_HOL_PG` (or reset its `snowflake_admin` credentials) and re-run. |
 | `USE ROLE not allowed` / `Current session is restricted` | Your PAT was created with `ROLE_RESTRICTION`, which pins the session to one role. In Snowsight, run `ALTER USER VHOLuser REMOVE PROGRAMMATIC ACCESS TOKEN vhol_pat;`, re-run Block 1 (no role restriction), and update the token in `secret.pat` and the CoCo connection. |
-| Agent says "I've reached the time limit" | The budget is 30 s per answer. Ask a narrower question, or say "continue". |
+| Agent says "I've reached the time limit" | The budget is 120 s / 32,000 tokens per answer. Ask a narrower question, or say "continue". |
 | Connector commit/validation error | Ask CoCo to read the error, fix the named key in `config.json`, re-upload and commit again. |
 | Connector running but Bronze is empty | Ask CoCo to "show recent Openflow errors from the event table". The usual causes are an egress rule still set to the placeholder host (`example.com:5432`), or the secret not granted to `POSTGRES_INGEST_SERVICE_ROLE`. |
 | SQL connector config is blocked | Use **Option B (wizard)** in Act 3. Everything else stays the same. |

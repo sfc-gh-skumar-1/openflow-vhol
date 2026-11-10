@@ -2,7 +2,7 @@
 
 The agent DDL is verbatim in `solutions/08_agent.sql` (from notebook 04). Key settings:
 - `models.orchestration: auto` (account-specific allowed-model lists make pinned models brittle)
-- budget: 30 seconds, 16000 tokens
+- budget: 120 seconds, 32000 tokens
 - `instructions.response`: retail analytics expert tone, specific numbers, flag risks, next steps
 - `instructions.orchestration`: default to most recent data; map warehouse coordinates to city names
 - tool: Cortex Analyst text-to-SQL over the `RETAIL_PRODUCT_INTELLIGENCE` semantic view
