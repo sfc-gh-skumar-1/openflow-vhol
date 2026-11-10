@@ -354,8 +354,8 @@ product review into Postgres and updates an inventory level (an `UPDATE`, not ju
 you ask CoCo to stop it. On the dashboard, throughput climbs and **Last Ingested** keeps moving.
 
 *Measure it.* The PostgreSQL connector reports its own latency into the event table, **once every 60 seconds and
-only while data flows**. Let the generator run for **3–5 minutes** before you ask, so there are enough reports for a
-meaningful p50 (with fewer, CoCo shows what's there and re-checks):
+only while data flows**. CoCo answers right away with whatever reports exist (even just one); ask again later
+for a fuller picture:
 
 > How fast is it? Show me end-to-end CDC latency per table, and where the time goes between capture and merge.
 
