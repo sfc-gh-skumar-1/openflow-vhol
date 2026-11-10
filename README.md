@@ -376,6 +376,12 @@ Chart query 9 in Snowsight (minute on X, latency on Y) to see the latency line w
 
 *Break it on purpose.* An operator needs to know when a table stops replicating, without watching a dashboard:
 
+To receive email alerts, add your email to your profile and verify it.
+1. In Snowsight, **select your user profile at the bottom left of the screen** 
+2. Click on **Settings**.
+3. Enter your email address in the profile. You will get a verification email.
+4. Verify your email before you ask Coco to create the alert.
+
 > Create an alert that fires when any table in POSTGRES_INGEST fails replication. Then break one table on purpose so I can see it fire.
 
 You don't write the alert logic. Snowflake ships **Openflow alert templates**, and CoCo creates
