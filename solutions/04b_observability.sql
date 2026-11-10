@@ -188,8 +188,10 @@ SELECT PARSE_JSON(SYSTEM$GET_ALERT_TEMPLATE('OPENFLOW_GEN2_TABLE_REPLICATION_FAI
 -- The template supplies the condition and action; you only set scope, lookback and notification.
 --   SCOPE_ACTIVE / SCOPE_NAME  limit the alert to the POSTGRES_INGEST connector
 --   TABLE_NAMES                empty = every replicated table
---   NOTIFICATION_MODE IN_APP   needs no notification integration; v1 notifies only the user who ran this CREATE.
---                              For email or webhook, set EMAIL / WEBHOOK and the matching *_NOTIFICATION_INTEGRATION.
+--   NOTIFICATION_MODE EMAIL    with EMAIL_NOTIFICATION_INTEGRATION empty, the template emails the user who runs this
+--                              CREATE (it records that user's id at create time), so no notification integration is
+--                              needed. That user must have a verified email address. To email other people, create an
+--                              email notification integration and set EMAIL_NOTIFICATION_INTEGRATION to its name.
 --   SCHEDULE '1 MINUTE'        so the failure drill shows quickly (template default is 5 minutes)
 --   LOOKBACK 1 hour            the minimum (whole hours). After --fix the alert would keep TRIGGERing for up to an hour
 --                              on the old failure, so fail_replication.py --fix suspends it and --break resumes it.
@@ -203,7 +205,7 @@ CREATE OR REPLACE ALERT OPENFLOW_DB.OPENFLOW_SCHEMA.POSTGRES_INGEST_TABLE_FAILUR
     "SCOPE_ACTIVE" : "OPENFLOW_CONNECTOR",
     "SCOPE_NAME" : "OPENFLOW_DB.OPENFLOW_SCHEMA.POSTGRES_INGEST",
     "TABLE_NAMES" : "",
-    "NOTIFICATION_MODE" : "IN_APP",
+    "NOTIFICATION_MODE" : "EMAIL",
     "EMAIL_NOTIFICATION_INTEGRATION" : "",
     "WEBHOOK_NOTIFICATION_INTEGRATION" : "",
     "QUEUE_NOTIFICATION_INTEGRATION" : ""
