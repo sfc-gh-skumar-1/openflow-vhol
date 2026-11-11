@@ -155,12 +155,18 @@ FROM status s LEFT JOIN fresh f USING (source_schema, source_table)
 ORDER BY s.status DESC, s.source_table;
 
 -- ============================ Alert: table replication failure (template) ============================
+-- Two parts, because the template notifies the user who runs the CREATE, and that must be the person watching
+-- Snowsight (CoCo's VHOLuser never logs in to the web UI, so its in-app notifications would go unseen).
+--   PART A (CoCo, as VHOLuser):            grants + drop any old copy. Run by CoCo.
+--   PART B (Snowsight, as YOUR web user):  CREATE + RESUME. Paste into a Snowsight worksheet and run it there.
 -- The alert is owned by OPENFLOW_ADMIN, the role that runs Openflow. The owner role needs the EXECUTE ALERT
 -- account privilege (otherwise every run fails with "EXECUTE ALERT privilege must be granted to owner role"),
 -- CREATE ALERT on the schema, and USAGE on the warehouse. It also needs USAGE on the runtime in scope, which it
 -- already has as the runtime owner; without it the template fails with "No Openflow connectors visible for scope".
 -- POSTGRES_INGEST is a gen 2 connector, so use the Gen2 template; the gen 1 template does not monitor it.
 -- Snowsight equivalent: Monitoring -> Alerts -> + Alert -> OPENFLOW group -> "Table replication failure alert (Gen2)".
+
+-- ---------- PART A (CoCo) ----------
 USE ROLE ACCOUNTADMIN;
 GRANT EXECUTE ALERT ON ACCOUNT TO ROLE OPENFLOW_ADMIN;
 GRANT CREATE ALERT ON SCHEMA OPENFLOW_DB.OPENFLOW_SCHEMA TO ROLE OPENFLOW_ADMIN;
@@ -171,7 +177,10 @@ GRANT USAGE ON WAREHOUSE RETAIL_HOL_WH TO ROLE OPENFLOW_ADMIN;
 DROP ALERT IF EXISTS OPENFLOW_DB.OPENFLOW_SCHEMA.POSTGRES_INGEST_TABLE_FAILURE_ALERT;
 DROP TABLE IF EXISTS OPENFLOW_DB.OPENFLOW_SCHEMA.REPLICATION_ALERT_LOG;  -- log table from the old hand-written alert
 
+-- ---------- PART B (Snowsight worksheet, signed in as your web user, e.g. the event USER) ----------
+-- Your user needs OPENFLOW_ADMIN; event users get it through ACCOUNTADMIN -> SYSADMIN (02_openflow_deployment.sql).
 USE ROLE OPENFLOW_ADMIN;
+USE WAREHOUSE RETAIL_HOL_WH;
 
 -- Optional: list the Openflow replication templates and their current versions
 SELECT t.value:template_id::STRING     AS template_id,
@@ -188,10 +197,10 @@ SELECT PARSE_JSON(SYSTEM$GET_ALERT_TEMPLATE('OPENFLOW_GEN2_TABLE_REPLICATION_FAI
 -- The template supplies the condition and action; you only set scope, lookback and notification.
 --   SCOPE_ACTIVE / SCOPE_NAME  limit the alert to the POSTGRES_INGEST connector
 --   TABLE_NAMES                empty = every replicated table
---   NOTIFICATION_MODE EMAIL    with EMAIL_NOTIFICATION_INTEGRATION empty, the template emails the user who runs this
---                              CREATE (it records that user's id at create time), so no notification integration is
---                              needed. That user must have a verified email address. To email other people, create an
---                              email notification integration and set EMAIL_NOTIFICATION_INTEGRATION to its name.
+--   NOTIFICATION_MODE IN_APP   notifies the user who runs this CREATE (the template records that user at create time),
+--                              which is why PART B runs in Snowsight as you. The alert is owned by OPENFLOW_ADMIN, so
+--                              fail_replication.py (as VHOLuser) can still SUSPEND/RESUME it. No notification integration
+--                              needed. The template takes one mode per alert; for email, set EMAIL (verified profile email).
 --   SCHEDULE '1 MINUTE'        so the failure drill shows quickly (template default is 5 minutes)
 --   LOOKBACK 1 hour            the minimum (whole hours). After --fix the alert would keep TRIGGERing for up to an hour
 --                              on the old failure, so fail_replication.py --fix suspends it and --break resumes it.
@@ -205,7 +214,7 @@ CREATE OR REPLACE ALERT OPENFLOW_DB.OPENFLOW_SCHEMA.POSTGRES_INGEST_TABLE_FAILUR
     "SCOPE_ACTIVE" : "OPENFLOW_CONNECTOR",
     "SCOPE_NAME" : "OPENFLOW_DB.OPENFLOW_SCHEMA.POSTGRES_INGEST",
     "TABLE_NAMES" : "",
-    "NOTIFICATION_MODE" : "EMAIL",
+    "NOTIFICATION_MODE" : "IN_APP",
     "EMAIL_NOTIFICATION_INTEGRATION" : "",
     "WEBHOOK_NOTIFICATION_INTEGRATION" : "",
     "QUEUE_NOTIFICATION_INTEGRATION" : ""
@@ -213,6 +222,7 @@ CREATE OR REPLACE ALERT OPENFLOW_DB.OPENFLOW_SCHEMA.POSTGRES_INGEST_TABLE_FAILUR
 }';
 
 ALTER ALERT OPENFLOW_DB.OPENFLOW_SCHEMA.POSTGRES_INGEST_TABLE_FAILURE_ALERT RESUME;  -- alerts are created suspended
+-- ---------- end of PART B; back to CoCo for the drill (scripts/fail_replication.py --break) ----------
 
 -- 12. Did it fire? (after scripts/fail_replication.py --break; allow ~2-3 min: 60 s metric + 1 min schedule)
 --     The template keeps no log table (no REPLICATION_ALERT_LOG); firings show here and in Monitoring -> Alerts.

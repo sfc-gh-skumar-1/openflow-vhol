@@ -35,6 +35,13 @@ the `solutions/` file**. Never batch statements into parallel tool calls (no `di
 (SHOW / DESCRIBE / SELECT on finished objects) may be grouped only when nothing depends on them. If a statement
 fails because an earlier one hadn't run, re-run the remaining statements in file order (all are safe to re-run).
 
+**Waiting (strict):** never use `sleep` (or any fixed-delay shell command) to wait for Openflow objects. Use the Openflow wait functions, which block server-side and return `OK` (or raise if the object fails or the timeout elapses):
+- Deployment ACTIVE (20 min): `SELECT SYSTEM$WAIT_FOR_OPENFLOW_DEPLOYMENT_STATUS(1200, 'ACTIVE', 'SPCS_SOM');`
+- Runtime ACTIVE (10 min): `SELECT SYSTEM$WAIT_FOR_OPENFLOW_RUNTIME_STATUS(600, 'ACTIVE', 'OPENFLOW_DB.OPENFLOW_SCHEMA.POSTGRES_RUNTIME_SOM');`
+- Connector STARTING -> RUNNING after START (5 min): `SELECT SYSTEM$WAIT_FOR_OPENFLOW_CONNECTOR_STATUS(300, 'RUNNING', 'OPENFLOW_DB.OPENFLOW_SCHEMA.POSTGRES_INGEST');`
+- Connector settled after COMMIT / STOP: `SELECT SYSTEM$WAIT_FOR_STABLE_OPENFLOW_CONNECTORS(600, 'POSTGRES_INGEST');`
+- After SUSPEND / TERMINATE (cleanup): `SYSTEM$WAIT_FOR_STABLE_OPENFLOW_RUNTIMES` / `SYSTEM$WAIT_FOR_STABLE_OPENFLOW_DEPLOYMENTS`. If a wait times out, the operation is still running: re-run the same wait with a fresh timeout. Never re-issue the CREATE. When running a wait through `sql_execute`, set its `timeout_seconds` above the wait's own timeout (the tool default is 180 s and would cut the wait off): 1260 for the deployment wait, 660 for 600 s waits, 360 for the 300 s connector wait. Things with no wait function (Bronze snapshot rows, event-table metrics, alert runs): do not sleep for them either. Check once; if not there yet, say so, move on to the next independent step, and re-check later.
+
 ## Fixed context
 
 - Account: event-provided, region **varies**. SPCS, Openflow, Managed Postgres and
@@ -128,15 +135,18 @@ Kick off the deployment and immediately continue to Act 2 — do not block on AC
   Do not modify the loader's data logic.
 
 ### Act 3 — Runtime + CDC connector (`solutions/04_runtime_connector.sql`, `references/connector_config.md`)
-- Prereq: `SHOW OPENFLOW DEPLOYMENTS` shows `SPCS_SOM` ACTIVE. If not, report the state and wait.
+- Prereq: `SPCS_SOM` ACTIVE. If `SHOW OPENFLOW DEPLOYMENTS` shows it still CREATING, run
+  `SYSTEM$WAIT_FOR_OPENFLOW_DEPLOYMENT_STATUS(1200, 'ACTIVE', 'SPCS_SOM')` (not a sleep loop).
 - **Connector-first:** the attendee asks only for the connector (SQL or wizard). Resolve its prerequisites yourself:
   run `SHOW OPENFLOW RUNTIMES LIKE 'POSTGRES_RUNTIME_SOM' IN SCHEMA OPENFLOW_DB.OPENFLOW_SCHEMA`; if missing, tell
   the attendee "the connector needs a runtime, creating POSTGRES_RUNTIME_SOM first", run steps 1-2 of
-  `04_runtime_connector.sql`, wait for ACTIVE, then build the connector. If it exists but isn't ACTIVE, wait/resume it.
+  `04_runtime_connector.sql` in file order (its Checkpoint R is the
+  `SYSTEM$WAIT_FOR_OPENFLOW_RUNTIME_STATUS(600, 'ACTIVE', ...)` call), then build the connector. If it exists but isn't ACTIVE,
+  resume it if suspended and use the same wait function.
 - `GRANT READ ON SECRET ... TO ROLE POSTGRES_INGEST_SERVICE_ROLE` (as ACCOUNTADMIN).
 - Runtime `OPENFLOW_DB.OPENFLOW_SCHEMA.POSTGRES_RUNTIME_SOM` IN DEPLOYMENT `SPCS_SOM`,
   `NODE_TYPE=SMALL` (default tier S1), `MIN_NODES=1`, `MAX_NODES=1`, `EXECUTE_AS_ROLE=POSTGRES_INGEST_SERVICE_ROLE`,
-  `EXTERNAL_ACCESS_INTEGRATIONS=(RETAIL_HOL_POSTGRES_EAI)`. Wait for ACTIVE.
+  `EXTERNAL_ACCESS_INTEGRATIONS=(RETAIL_HOL_POSTGRES_EAI)`. Wait for ACTIVE with `SYSTEM$WAIT_FOR_OPENFLOW_RUNTIME_STATUS`.
 - Tasks `SUSPEND_POSTGRES_RUNTIME_SOM` (5 PM PT) / `RESUME_POSTGRES_RUNTIME_SOM` (6 AM PT). Leave them suspended unless asked.
 - Connector `POSTGRES_INGEST` — **configured with SQL, not the wizard.** Run
   `<venv-python> scripts/configure_connector.py --account <ORG-ACCOUNT>`. It does
@@ -176,19 +186,28 @@ Kick off the deployment and immediately continue to Act 2 — do not block on AC
   **Never wait or sleep for more reports.** Answer immediately with whatever exists, even a single report:
   give the latest value per metric/table in seconds (plus p50/max when there are 2+ reports) and its timestamp.
   If there is only 1-2 reports, add one line: "more reports arrive every 60 s; ask again later for a fuller picture".
-- Alert + failure drill: run the alert block in `04b_observability.sql` **as written**. It uses the built-in Openflow
+- Alert + failure drill: the alert block in `04b_observability.sql` has two parts. It uses the built-in Openflow
   template (`CREATE OR REPLACE ALERT ... FROM TEMPLATE OPENFLOW_GEN2_TABLE_REPLICATION_FAILURE`), owned by
-  **OPENFLOW_ADMIN**: first, as ACCOUNTADMIN, grant OPENFLOW_ADMIN `EXECUTE ALERT` on the account, `CREATE ALERT` on the
-  schema and USAGE on RETAIL_HOL_WH, and drop any old copy of the alert (+ the legacy `REPLICATION_ALERT_LOG` table);
-  then as OPENFLOW_ADMIN create and RESUME it. Do NOT hand-write an alert condition or a log table. Use the **Gen2**
-  template (the gen 1 one doesn't see POSTGRES_INGEST). Errors: "EXECUTE ALERT privilege must be granted to owner role"
-  or "No Openflow connectors visible for scope" -> re-run the grants. Then
+  **OPENFLOW_ADMIN**. **PART A (you run it):** as ACCOUNTADMIN, grant OPENFLOW_ADMIN `EXECUTE ALERT` on the account,
+  `CREATE ALERT` on the schema and USAGE on RETAIL_HOL_WH, and drop any old copy of the alert (+ the legacy
+  `REPLICATION_ALERT_LOG` table). **PART B (the attendee runs it in Snowsight):** never run the CREATE ALERT yourself.
+  The template notifies (IN_APP) the user who runs the CREATE, and VHOLuser never logs in to Snowsight, so an alert you
+  create notifies nobody. After PART A, show the attendee the PART B block verbatim (USE ROLE OPENFLOW_ADMIN; USE WAREHOUSE;
+  CREATE OR REPLACE ALERT ...; ALTER ALERT ... RESUME) and tell them to paste it into a Snowsight worksheet signed in as
+  their web user, run it, and reply when done. Then confirm with `SHOW ALERTS LIKE 'POSTGRES_INGEST_TABLE_FAILURE_ALERT'
+  IN SCHEMA OPENFLOW_DB.OPENFLOW_SCHEMA` (state started) before the drill. Do NOT hand-write an alert condition or a log
+  table. Use the **Gen2** template (the gen 1 one doesn't see POSTGRES_INGEST). Errors: "EXECUTE ALERT privilege must be
+  granted to owner role" or "No Openflow connectors visible for scope" -> re-run PART A. Then
   `<venv-python> scripts/fail_replication.py --account <ORG-ACCOUNT> --break` (adds `bronze.pos_events`, no primary key,
-  to the publication and connector; expect `db.table.status = 4008`). Wait ~3 min, show query 11 (pos_events = 4008) and query 12 (ALERT_HISTORY state TRIGGERED; the template keeps
-  no log table, and its IN_APP notification goes only to VHOLuser, so point attendees to the history / Monitoring -> Alerts), and
+  to the publication and connector; expect `db.table.status = 4008`). The metric and alert need ~2-3 min: check query 11 once
+  right away; if 4008 isn't there yet, say so and re-check on the attendee's next prompt (no sleeping). Then show query 11 (pos_events = 4008) and query 12 (ALERT_HISTORY state TRIGGERED; the template keeps
+  no log table; its IN_APP notification goes to the attendee's Snowsight user who ran PART B, so also point them to the bell /
+  Monitoring -> Alerts), and
   point to View Details on the dashboard. `--fix` also SUSPENDs the alert (its minimum 1-hour lookback would keep it TRIGGERED on the old 4008) and `--break`
   RESUMEs it; tell the attendee that. Restore with `--fix` when asked (or before Act 5): **run `--fix` in the background** (bash `run_in_background`)
-  and move straight on with the attendee; don't sit waiting on it. Both modes return as soon as START is sent
+  and end the turn right away. Do NOT poll its output, sleep, or check connector/table status in the same turn: tell the
+  attendee it is restoring in the background and they can go straight to the Silver tables (Act 5 doesn't depend on it).
+  Verify the fix later (connector RUNNING, 5 lab tables status 3) at the start of the next Act 4/5 prompt or when asked. Both modes return as soon as START is sent
   (add `--wait` only if you must block until RUNNING). Never hand-patch around script errors; `git pull` first. Only `pos_events` is
   ever broken — never alter the 5 lab tables. Mention that Snowsight Monitoring -> Alerts -> OPENFLOW offers the same template (email/webhook) as the no-SQL option.
 
@@ -261,10 +280,11 @@ accepted once by ORGADMIN; if deployment creation fails mentioning terms, say so
    overstock + rebalancing, not stock-outs. The 120 s budget can still cut off very long answers; suggest "continue".
 7. Cleanup only when explicitly asked: stop any background `cdc_demo.py`, then `solutions/99_cleanup.sql` (confirm first — destructive).
    Do the pre-cleanup checks with SHOW / DESCRIBE (no warehouse needed); RETAIL_HOL_WH is dropped near the end.
-   Poll every `-- wait:` SHOW until the status is reached (including connector STOPPED before TERMINATE).
+   At every `-- wait:` step use the matching wait function from **Waiting (strict)** (including connector STOPPED before
+   TERMINATE: `SYSTEM$WAIT_FOR_OPENFLOW_CONNECTOR_STATUS(600, 'STOPPED', 'POSTGRES_INGEST')`), not a SHOW polling loop.
    Drop the CoWork object only if `SHOW AGENTS IN SNOWFLAKE INTELLIGENCE ...` is empty after the agent is removed.
-   SUSPEND/TERMINATE are async: poll the SHOW check after each until the status is reached before the
-   next DROP (in `SHOW OPENFLOW DEPLOYMENTS` the status is the 3rd column; the 2nd is `type`).
+   SUSPEND/TERMINATE are async: run the stable-wait function after each before the next DROP; use SHOW only to report
+   (in `SHOW OPENFLOW DEPLOYMENTS` the status is the 3rd column; the 2nd is `type`).
    If the account has other Openflow runtimes or objects in `RETAIL_HOL_ADMIN` / using `RETAIL_HOL_ROLE`,
    do NOT drop those shared objects — drop only the lab objects and tell the attendee what was kept.
 
@@ -272,7 +292,7 @@ accepted once by ORGADMIN; if deployment creation fails mentioning terms, say so
 - **D (deployment):** `SHOW OPENFLOW DEPLOYMENTS;` -> `SPCS_SOM` state. ACTIVE needed before Act 3.
 - **P (Postgres):** loader prints sales_transactions 4,375 / daily_reviews 4,375 / product_reviews 512 /
   customer_comments 200 / inventory_feed 634 (total 10,096), and the 5 tables in `openflow_retail_pub`.
-- **R (runtime):** `DESCRIBE OPENFLOW RUNTIME POSTGRES_RUNTIME_SOM;` -> ACTIVE.
+- **R (runtime):** `SYSTEM$WAIT_FOR_OPENFLOW_RUNTIME_STATUS(600, 'ACTIVE', 'OPENFLOW_DB.OPENFLOW_SCHEMA.POSTGRES_RUNTIME_SOM')` returns OK.
 - **C (CDC):** `SHOW ICEBERG TABLES IN SCHEMA RETAIL_HOL_ICEBERG.BRONZE;` shows 5 tables, then
   per-table `COUNT(*)` equals the loader counts (snapshot lands ~1–3 min after START).
   If empty after ~5 min, run the error-log query in `solutions/04b_observability.sql` (`TRY_PARSE_JSON(value):level = 'ERROR'`, `record_type = 'LOG'`; NOT `record_attributes:severity_text`, which never matches Openflow logs).

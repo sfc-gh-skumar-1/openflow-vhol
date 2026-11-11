@@ -29,6 +29,8 @@ from configure_connector import DRIVER, LIVE, ROOT, TABLES, WORK, connect, ensur
 
 DRILL_TABLE = "pos_events"
 WAIT = "SELECT SYSTEM$WAIT_FOR_STABLE_OPENFLOW_CONNECTORS(600, 'POSTGRES_INGEST')"
+WAIT_RUNNING = ("SELECT SYSTEM$WAIT_FOR_OPENFLOW_CONNECTOR_STATUS(600, 'RUNNING', "
+                "'OPENFLOW_DB.OPENFLOW_SCHEMA.POSTGRES_INGEST')")  # STARTING -> RUNNING, 10 min
 TABLE_KEY = ("Replication table schema", "Included Comma Separated Source Table Names")
 
 
@@ -95,7 +97,7 @@ def set_connector_tables(cur, tables, wait_for_running=False):
         raise
     run(cur, "ALTER OPENFLOW CONNECTOR POSTGRES_INGEST START")
     if wait_for_running:
-        print("   ", run(cur, WAIT)[0][0])
+        print("   ", run(cur, WAIT_RUNNING)[0][0])
     else:
         # START is asynchronous; nothing in the lab needs to block until RUNNING, so return now (saves ~1-2 min).
         print("    START sent; the connector reaches RUNNING in ~1-2 min "

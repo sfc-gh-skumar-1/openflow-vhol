@@ -127,13 +127,9 @@ def main():
 
     run(cur, "CREATE OPENFLOW CONNECTOR IF NOT EXISTS POSTGRES_INGEST IN RUNTIME POSTGRES_RUNTIME_SOM "
              "FROM DEFINITION OPENFLOW_POSTGRES_CDC DISPLAY_NAME = 'POSTGRES_INGEST'")
-    status = None
-    for _ in range(40):  # a new connector is CREATING briefly before it settles in STOPPED
-        status = run(cur, "SHOW OPENFLOW CONNECTORS LIKE 'POSTGRES_INGEST'", show=False)[0][1]
-        if status != "CREATING":
-            break
-        print(f"    connector status = {status}, waiting...")
-        time.sleep(15)
+    # A new connector is CREATING briefly before it settles in STOPPED; block server-side instead of polling.
+    run(cur, "SELECT SYSTEM$WAIT_FOR_STABLE_OPENFLOW_CONNECTORS(600, 'POSTGRES_INGEST')")
+    status = run(cur, "SHOW OPENFLOW CONNECTORS LIKE 'POSTGRES_INGEST'", show=False)[0][1]
     if status not in ("STOPPED", "DRAFT"):
         print(f"Connector is {status}; nothing to configure. (Stop it and ADD LIVE VERSION FROM LAST to edit.)")
         return
@@ -171,7 +167,8 @@ def main():
     print("   ", run(cur, "SELECT SYSTEM$WAIT_FOR_STABLE_OPENFLOW_CONNECTORS(600, 'POSTGRES_INGEST')")[0][0])
     if not args.no_start:
         run(cur, "ALTER OPENFLOW CONNECTOR POSTGRES_INGEST START")
-        print("   ", run(cur, "SELECT SYSTEM$WAIT_FOR_STABLE_OPENFLOW_CONNECTORS(600, 'POSTGRES_INGEST')")[0][0])
+        print("   ", run(cur, "SELECT SYSTEM$WAIT_FOR_OPENFLOW_CONNECTOR_STATUS(300, 'RUNNING', "
+                            "'OPENFLOW_DB.OPENFLOW_SCHEMA.POSTGRES_INGEST')")[0][0])
     print("   ", run(cur, "SHOW OPENFLOW CONNECTORS LIKE 'POSTGRES_INGEST'", show=False)[0][:3])
     conn.close()
 
