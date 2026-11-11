@@ -391,6 +391,8 @@ Snowsight, so this one step is yours:
    `OPENFLOW_ADMIN`, creates the alert and resumes it.
 3. Tell CoCo it's done.
 
+> Proceed with failing the table
+
 CoCo then runs `scripts/fail_replication.py --break`, which adds a new
 Postgres table **without a primary key** (`bronze.pos_events`) to replication. Within about 2 minutes:
 - `pos_events` shows **failed** (`4008 MISSING_PRIMARY_KEYS`) in the dashboard's **View Details**.
